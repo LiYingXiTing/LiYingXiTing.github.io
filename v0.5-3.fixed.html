@@ -1,0 +1,2939 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>3D 迷宫小游戏（多模式 / Three.js r128）</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #0b0f14; touch-action: none; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, "PingFang SC", "Microsoft YaHei", sans-serif; }
+
+    /* canvas 由 renderer 注入 */
+    canvas { display:block; }
+
+    /* 顶部 HUD（游戏内） */
+    #hud {
+      position: fixed; left: 12px; top: 12px; right: 12px;
+      display: flex; gap: 10px; align-items: flex-start; justify-content: space-between;
+      pointer-events: none;
+      color: #eaf2ff;
+      z-index: 10;
+    }
+    #hud .card {
+      pointer-events: none;
+      background: rgba(20, 30, 45, 0.55);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.08);
+      padding: 10px 12px; border-radius: 12px;
+      display: inline-flex; flex-direction: column; gap: 8px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+      min-width: 270px;
+    }
+    #hud .row { display: flex; gap: 10px; align-items: center; }
+    #hud .btn {
+      pointer-events: auto;
+      cursor: pointer;
+      user-select: none;
+      border-radius: 12px;
+      padding: 10px 12px;
+      background: rgba(35, 55, 85, 0.65);
+      border: 1px solid rgba(255,255,255,0.12);
+      color: #eaf2ff;
+      font-weight: 900;
+      transition: transform .08s ease, opacity .15s ease;
+      z-index: 10;
+      white-space: nowrap;
+    }
+    #hud .btn:active { transform: scale(0.98); }
+    #hud .btn.ghost { background: rgba(255,255,255,0.06); font-weight: 900; }
+
+    #infoRow { display:flex; gap:10px; align-items: baseline; flex-wrap: wrap; }
+    #info { opacity: .9; font-weight: 900; }
+
+    #timerRow { font-size: 12px; opacity: .95; line-height: 1.45; display:none; }
+    #scoreRow { font-size: 12px; opacity: .95; line-height: 1.45; }
+    #statsRow { font-size: 12px; opacity: .92; line-height: 1.45; }
+    #statsRow b, #timerRow b, #scoreRow b { font-weight: 950; }
+
+    /* 极简模式：顶端居中的计时 */
+    #minimalTime {
+      position: fixed;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: rgba(234,242,255,0.96);
+      font-weight: 950;
+      background: rgba(20,30,45,0.45);
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 14px;
+      padding: 10px 12px;
+      z-index: 14;
+      display: none;
+      pointer-events: none;
+      backdrop-filter: blur(8px);
+    }
+    #minimalExit {
+      position: fixed;
+      top: calc(env(safe-area-inset-top) + 12px);
+      left: 12px;
+      z-index: 14;
+      display: none;
+      pointer-events: auto;
+      cursor: pointer;
+      user-select: none;
+      padding: 8px 10px;
+      border-radius: 999px;
+      font-weight: 950;
+      font-size: 12px;
+      background: rgba(255,255,255,0.10);
+      border: 1px solid rgba(255,255,255,0.18);
+      backdrop-filter: blur(10px);
+      box-shadow: 0 10px 28px rgba(0,0,0,0.28);
+      color: rgba(234,242,255,0.96);
+      transition: transform .08s ease, opacity .15s ease;
+    }
+    #minimalExit:active { transform: scale(0.98); }
+    #minimalExit .dot {
+      display:inline-block;
+      width:8px; height:8px;
+      border-radius:999px;
+      background: rgba(110,231,255,0.95);
+      margin-right: 8px;
+      box-shadow: 0 0 0 3px rgba(110,231,255,0.18);
+      vertical-align: middle;
+    }
+
+    /* 极简：左上角“关键字信息”（无背景、黑色小字，可折叠） */
+    #minimalInfoWrap{
+      position: fixed;
+      top: calc(env(safe-area-inset-top) + 54px);
+      left: 12px;
+      z-index: 15;
+      display: none;
+      pointer-events: auto;
+      user-select: none;
+    }
+    #minimalInfoToggle{
+      font-size: 12px;
+      font-weight: 950;
+      color: rgba(0,0,0,0.85);
+      cursor: pointer;
+      padding: 2px 0;
+    }
+    #minimalInfo{
+      margin-top: 4px;
+      font-size: 11px;
+      font-weight: 900;
+      color: rgba(0,0,0,0.80);
+      line-height: 1.35;
+      white-space: pre-line;
+    }
+
+    /* 主界面 */
+    #menu {
+      position: fixed; inset: 0;
+      display: none;
+      z-index: 40;
+      pointer-events: auto;
+      color: #eaf2ff;
+    }
+    #menuInner{
+      position:absolute; inset:0;
+      display:flex; align-items:flex-start; justify-content:center;
+      padding: calc(env(safe-area-inset-top) + 18px) 18px calc(env(safe-area-inset-bottom) + 18px);
+      overflow-y:auto;
+      -webkit-overflow-scrolling: touch;
+      touch-action: pan-y;
+    }
+    #menuCard{
+      width: min(860px, 96vw);
+      background: rgba(10, 16, 26, 0.86);
+      border: 1px solid rgba(255,255,255,0.14);
+      border-radius: 18px;
+      box-shadow: 0 16px 44px rgba(0,0,0,0.38);
+      padding: 16px;
+      backdrop-filter: blur(12px);
+    
+      max-height: 92vh;
+      overflow: auto;
+    }
+    #menuHeader{
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+      margin-bottom: 10px;
+    }
+    #menuHeader b{ font-size: 18px; font-weight: 950; }
+    #menuBtns{ display:flex; gap:10px; flex-wrap:wrap; }
+    .mBtn{
+      cursor:pointer; user-select:none;
+      padding:10px 12px; border-radius: 12px;
+      background: rgba(35, 55, 85, 0.70);
+      border: 1px solid rgba(255,255,255,0.14);
+      color:#eaf2ff; font-weight: 950;
+      transition: transform .08s ease;
+      white-space: nowrap;
+    }
+    .mBtn:active{ transform: scale(0.98); }
+    .mBtn.secondary{
+      background: rgba(255,255,255,0.06);
+      font-weight: 900;
+    }
+    #modeGrid{
+      display:grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+    @media (max-width: 900px) {
+      #modeGrid{ grid-template-columns: 1fr; }
+    }
+    .modeCard{
+      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(255,255,255,0.05);
+      border-radius: 16px;
+      padding: 12px;
+      box-shadow: 0 10px 24px rgba(0,0,0,0.20);
+    }
+    .modeCard h3{
+      margin:0 0 6px;
+      font-size: 14px;
+      font-weight: 950;
+      letter-spacing: .2px;
+    }
+    .modeCard .desc{
+      font-size: 12px;
+      opacity: .90;
+      line-height: 1.45;
+      margin-bottom: 10px;
+    }
+    .modeCard .record{
+      font-size: 12px;
+      opacity: .95;
+      line-height: 1.45;
+    }
+    .modeCard .record b{ font-weight: 950; }
+    .modeCard .playRow{ margin-top: 10px; display:flex; gap:10px; flex-wrap:wrap; }
+    .modeCard .playBtn{
+      flex:1;
+      cursor:pointer; user-select:none;
+      padding: 12px;
+      border-radius: 14px;
+      background: rgba(110,231,255,0.18);
+      border: 1px solid rgba(110,231,255,0.28);
+      font-weight: 950;
+      color:#eaf2ff;
+      text-align:center;
+    }
+    .modeCard .playBtn:active{ transform: scale(0.98); }
+
+    /* 小地图 */
+    #minimapWrap {
+      position: fixed;
+      right: 12px;
+      top: 74px;
+      width: 160px;
+      height: 160px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(20,30,45,0.45);
+      backdrop-filter: blur(8px);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+      z-index: 10;
+      pointer-events: none;
+      display: none;
+      overflow: hidden;
+    }
+    #minimapInner{ position:absolute; inset: 10px; border-radius: 10px; overflow: hidden; }
+    #minimap { width: 100%; height: 100%; display:block; }
+    #minimapLabel {
+      position: absolute; left: 10px; top: 8px;
+      font-size: 11px; opacity: 0.85; font-weight: 950; z-index: 2;
+      pointer-events: none;
+    }
+    @media (max-width: 900px) {
+      #minimapWrap { width: 140px; height: 140px; }
+    }
+    body.minimal #hud { display: none !important; }
+    body.minimal #minimapWrap { top: 12px; }
+
+    /* 触控 UI */
+    #joystick {
+      position: fixed; left: 14px; bottom: 14px;
+      width: 140px; height: 140px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.10);
+      backdrop-filter: blur(6px);
+      pointer-events: auto;
+      touch-action: none;
+      display: none;
+      z-index: 12;
+    }
+    #stick {
+      position: absolute; left: 50%; top: 50%;
+      width: 64px; height: 64px;
+      margin-left: -32px; margin-top: -32px;
+      border-radius: 999px;
+      background: rgba(120,180,255,0.20);
+      border: 1px solid rgba(120,180,255,0.30);
+      box-shadow: 0 8px 22px rgba(0,0,0,0.18);
+    }
+    @media (max-width: 900px) { #joystick { display: block; } }
+
+    /* 遮罩层 & 弹窗 */
+    #backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: none; z-index: 20; pointer-events: auto; }
+    .modal{
+      position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+      width: min(460px, 92vw);
+      background: rgba(10, 16, 26, 0.86);
+      border: 1px solid rgba(255,255,255,0.14);
+      border-radius: 16px;
+      padding: 14px 14px 12px;
+      color: #eaf2ff;
+      box-shadow: 0 12px 36px rgba(0,0,0,0.35);
+      display: none; z-index: 80; pointer-events: auto;
+      max-height: 86vh; overflow:auto; -webkit-overflow-scrolling: touch;
+    }
+    #msg b{ font-size: 16px; display:block; margin-bottom: 6px; }
+    #msg small{ opacity: .92; line-height: 1.45; display:block; }
+    #msg .btnRow{ margin-top: 12px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+    #msg .btn2{
+      cursor:pointer; user-select:none;
+      border-radius: 12px;
+      padding: 10px 12px;
+      background: rgba(35, 55, 85, 0.75);
+      border: 1px solid rgba(255,255,255,0.14);
+      color: #eaf2ff; font-weight: 950;
+      pointer-events: auto;
+    }
+
+    /* 设置弹窗 */
+    .titleRow{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .closeX{ cursor:pointer; user-select:none; opacity:.9; font-weight: 950; font-size: 18px; }
+    .help{ margin-top: 10px; font-size: 12px; opacity: .92; line-height: 1.45; }
+    .section{ margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.08); }
+    .section h3{ margin:0 0 8px; font-size: 13px; opacity:.95; font-weight: 950; letter-spacing:.2px; }
+    .presets{ display:flex; gap:8px; flex-wrap:wrap; }
+    .presetBtn{
+      cursor:pointer; user-select:none;
+      padding:10px 12px; border-radius: 12px;
+      border:1px solid rgba(255,255,255,0.14);
+      background: rgba(255,255,255,0.06);
+      color:#eaf2ff; font-weight: 950;
+    }
+    .presetBtn:active{ transform: scale(0.98); }
+
+    .grid2{ margin-top: 10px; display:flex; gap:10px; align-items:center; }
+    .col{ flex:1; }
+    .label{ font-size:12px; opacity:.88; margin-bottom:6px; font-weight: 900; }
+    .input, select, textarea {
+      width:100%;
+      padding:10px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(255,255,255,0.06);
+      color:#eaf2ff;
+      outline:none;
+      box-sizing:border-box;
+      font-weight: 800;
+    }
+    textarea{ min-height: 86px; resize: vertical; }
+
+    .toggleRow{
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.04);
+      font-size: 13px;
+      margin-top: 10px;
+    }
+    .toggleRow span{ opacity:.94; font-weight: 950; }
+    .toggleRow small{ opacity:.78; display:block; margin-top:3px; font-weight: 650; }
+    .toggleRow input{ transform: scale(1.2); }
+
+    .actions{ margin-top: 12px; display:flex; gap:10px; flex-wrap:wrap; }
+    .btnWide{
+      flex:1;
+      padding:12px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.14);
+      color:#eaf2ff;
+      font-weight: 950;
+      cursor:pointer;
+      background: rgba(35, 55, 85, 0.75);
+    }
+    .btnWide.secondary{ background: rgba(255,255,255,0.06); font-weight: 900; }
+
+    .rangeRow{ display:flex; gap:10px; align-items:center; margin-top: 10px; }
+    .rangeRow input[type="range"]{ flex: 1; }
+    .rangeRow .miniInput{ width: 120px; }
+
+    .colorRow{ display:flex; gap:10px; align-items:center; margin-top: 10px; }
+    .colorSwatch{
+      width: 36px; height: 36px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(255,255,255,0.10);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.25);
+      flex:0 0 auto;
+    }
+
+    .collapseBtn{
+      cursor:pointer; user-select:none;
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.04);
+      font-weight: 950;
+      display:flex; align-items:center; justify-content:space-between;
+    }
+    .collapseBody{ display:none; padding-top: 10px; }
+    .monoHint{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 11px; opacity: .85; }
+  </style>
+</head>
+
+<body>
+  <!-- 主界面 -->
+  <div id="menu">
+    <div id="menuInner">
+      <div id="menuCard">
+        <div id="menuHeader">
+          <b>3D 迷宫 · 主界面</b>
+          <div id="menuBtns">
+            <div class="mBtn" id="menuFullscreenBtn">全屏</div>
+            <div class="mBtn secondary" id="menuSettingsBtn">设置</div>
+          </div>
+        </div>
+        <div style="opacity:.90;font-size:12px;line-height:1.45">
+          手机：左下摇杆移动 / 右侧滑动看向；电脑：WASD 移动 / 鼠标拖拽视角<br/>
+          <span class="monoHint">同条件记录：同一尺寸 + 小地图开关 + 显示怪物/幽灵位置开关 + 是否显示实体模型等关键设置</span>
+        </div>
+
+        <div id="modeGrid">
+          <div class="modeCard">
+            <h3>普通模式</h3>
+            <div class="desc">原来的玩法：找出口、捡宝物拿分；可计时、可记录最高分。</div>
+            <div class="record" id="rec_normal">最高分：<b>--</b><br/>最短用时：<b>--</b></div>
+            <div class="playRow">
+              <div class="playBtn" data-mode="normal">开始</div>
+            </div>
+          </div>
+
+          <div class="modeCard">
+            <h3>追逐模式</h3>
+            <div class="desc">深入迷宫后“怪物”从入口追你；被追上则失败。可在小地图显示怪物位置（可选）。</div>
+            <div class="record" id="rec_chase">最高分：<b>--</b><br/>最短用时：<b>--</b></div>
+            <div class="playRow">
+              <div class="playBtn" data-mode="chase">开始</div>
+            </div>
+          </div>
+
+          <div class="modeCard">
+            <h3>吃豆人模式</h3>
+            <div class="desc">没有出口：吃完所有豆子即成功；4 个幽灵随机出生；碰到扣 1 命回起点（3 命）。</div>
+            <div class="record" id="rec_pacman">最高分：<b>--</b><br/>最短用时：<b>--</b></div>
+            <div class="playRow">
+              <div class="playBtn" data-mode="pacman">开始</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:12px; opacity:.82; font-size:12px; line-height:1.45">
+          小提示：打开设置会暂停游戏；“返回主界面”不会清除你的历史记录。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 游戏 HUD -->
+  <div id="hud">
+    <div class="card">
+      <div id="infoRow">
+        <b id="modeName">3D 迷宫</b>
+        <span id="info"></span>
+      </div>
+
+      <div style="opacity:.88;font-size:12px;line-height:1.35">
+        手机：左下摇杆移动 / 右侧滑动看向<br/>
+        电脑：WASD 移动 / 鼠标拖拽视角
+      </div>
+
+      <div id="timerRow">
+        <div>用时：<b id="timeNow">00:00.0</b></div>
+        <div>最佳（同条件）：<b id="timeBest">--</b></div>
+      </div>
+
+      <div id="scoreRow">
+        <div id="lineCollect"><span id="collectLabel">宝物</span>：<b id="collectNow">0</b>/<b id="collectAll">0</b></div>
+        <div>最高分（同条件）：<b id="scoreBest">--</b></div>
+      </div>
+
+      <div id="statsRow">
+        <div style="opacity:.92">当前分数：<b id="scoreNow">0</b></div>
+        <div id="lifeRow" style="display:none; opacity:.92">生命：<b id="lifeNow">3</b></div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="btn" id="fullscreenBtn">全屏</div>
+      <div class="btn" id="settingsBtn">设置</div>
+      <div class="btn" id="restartBtn">重开</div>
+      <div class="btn" id="menuBtn">主界面</div>
+      <div class="btn ghost" id="minimalBtn">极简</div>
+    </div>
+  </div>
+
+  <!-- 极简模式：退出按钮 + 居中计时 -->
+  <div id="minimalExit"><span class="dot"></span>退出极简</div>
+  <div id="minimalTime">00:00.0</div>
+
+  <!-- 极简关键字信息（左上角） -->
+  <div id="minimalInfoWrap">
+    <div id="minimalInfoToggle">▾ 信息</div>
+    <div id="minimalInfo"></div>
+  </div>
+
+  <!-- 小地图 -->
+  <div id="minimapWrap">
+    <div id="minimapLabel"></div>
+    <div id="minimapInner">
+      <canvas id="minimap" width="256" height="256"></canvas>
+    </div>
+  </div>
+
+  <!-- 触控 UI -->
+  <div id="joystick" aria-label="虚拟摇杆"><div id="stick"></div></div>
+
+  <!-- 遮罩层 -->
+  <div id="backdrop"></div>
+
+  <!-- 消息弹窗 -->
+  <div id="msg" class="modal">
+    <b id="msgTitle">提示</b>
+    <small id="msgText"></small>
+    <div class="btnRow">
+      <div class="btn2" id="msgOk">继续</div>
+      <div class="btn2" id="msgRestart">重开</div>
+      <div class="btn2" id="msgToMenu">主界面</div>
+    </div>
+  </div>
+
+  <!-- 设置弹窗 -->
+  <div id="settings" class="modal">
+    <div class="titleRow">
+      <div style="font-weight:950; font-size:16px;">设置</div>
+      <div id="settingsClose" class="closeX">✕</div>
+    </div>
+
+    <div class="help">
+      打开设置时会<strong>暂停游戏</strong>；关闭后恢复。设置会<strong>自动持久化</strong>（localStorage）。
+    </div>
+
+    <div class="section">
+      <h3>迷宫大小</h3>
+      <div class="presets">
+        <button class="presetBtn" data-w="21" data-h="21">21×21</button>
+        <button class="presetBtn" data-w="31" data-h="31">31×31</button>
+        <button class="presetBtn" data-w="41" data-h="41">41×41</button>
+        <button class="presetBtn" data-w="51" data-h="51">51×51</button>
+      </div>
+      <div class="grid2">
+        <div class="col">
+          <div class="label">宽（格子）</div>
+          <input id="setW" class="input" type="number" min="11" max="101" step="2">
+        </div>
+        <div class="col">
+          <div class="label">高（格子）</div>
+          <input id="setH" class="input" type="number" min="11" max="101" step="2">
+        </div>
+      </div>
+      <div class="help" style="margin-top:8px;">建议奇数。太大可能让手机卡顿（上限 101）。</div>
+    </div>
+
+    <div class="section">
+      <h3>主界面背景色</h3>
+      <div class="help">主界面采用纯色背景：预设 + RGB 自定义。</div>
+      <div class="grid2">
+        <div class="col">
+          <div class="label">预设</div>
+          <select id="setMenuBgPreset" class="input">
+            <option value="dark">深色</option>
+            <option value="blue">蓝灰</option>
+            <option value="mint">薄荷</option>
+            <option value="sunset">日落</option>
+            <option value="custom">自定义 RGB</option>
+          </select>
+        </div>
+        <div class="col" style="display:flex;align-items:flex-end;justify-content:flex-end;">
+          <div id="menuBgSwatch" class="colorSwatch"></div>
+        </div>
+      </div>
+      <div class="grid2" style="margin-top:10px;">
+        <div class="col"><div class="label">R</div><input id="setMenuBgR" class="input" type="number" min="0" max="255" step="1"></div>
+        <div class="col"><div class="label">G</div><input id="setMenuBgG" class="input" type="number" min="0" max="255" step="1"></div>
+        <div class="col"><div class="label">B</div><input id="setMenuBgB" class="input" type="number" min="0" max="255" step="1"></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>小地图</h3>
+      <div class="toggleRow">
+        <div>
+          <span>启用小地图（探索/墙体揭示）</span>
+          <small>关闭/开启此项会<strong>重置迷宫</strong>（探索记录逻辑不同）</small>
+        </div>
+        <input id="setMinimapEnabled" type="checkbox">
+      </div>
+      <div class="toggleRow">
+        <div><span>显示小地图</span><small>仅影响界面显示，不重置迷宫</small></div>
+        <input id="setMinimapVisible" type="checkbox">
+      </div>
+      <div class="toggleRow">
+        <div><span>在小地图显示怪物/幽灵位置</span><small>仅显示已探索范围内的实体；未探索则不显示</small></div>
+        <input id="setShowEntityOnMinimap" type="checkbox">
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>玩法与沉浸</h3>
+      <div class="toggleRow">
+        <div><span>启用计时/最佳用时</span><small>首次移动开始计时；成功或失败会停止；按“同条件”保存</small></div>
+        <input id="setTimerEnabled" type="checkbox">
+      </div>
+      <div class="toggleRow">
+        <div><span>启用最高分记录</span><small>成功或失败后会更新（取最高）；按“同条件”保存</small></div>
+        <input id="setScoreEnabled" type="checkbox">
+      </div>
+      <div class="toggleRow">
+        <div><span>显示怪物/幽灵实体模型</span><small>关闭后它们仍会生效，但不渲染（更“恐怖”也更省性能）</small></div>
+        <input id="setShowEntityModels" type="checkbox">
+      </div>
+      <div class="toggleRow">
+        <div><span>视角晃动（镜头抖动）</span><small>增加代入感；可随时开关</small></div>
+        <input id="setCameraShake" type="checkbox">
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>视角与灵敏度</h3>
+      <div class="help">拖拽/滑动转向灵敏度（支持滑块 + 数值输入）。</div>
+      <div class="rangeRow">
+        <input id="setLookRange" type="range" min="0.001" max="0.01" step="0.0001">
+        <input id="setLookValue" class="input miniInput" type="number" min="0.001" max="0.01" step="0.0001">
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>天空颜色</h3>
+      <div class="help">预设 + RGB 自定义。</div>
+      <div class="grid2">
+        <div class="col">
+          <div class="label">预设</div>
+          <select id="setSkyPreset" class="input">
+            <option value="default">默认（清爽蓝灰）</option>
+            <option value="sky">天空蓝</option>
+            <option value="sunset">日落暖色</option>
+            <option value="mint">薄荷青</option>
+            <option value="custom">自定义 RGB</option>
+          </select>
+        </div>
+        <div class="col" style="display:flex; align-items:flex-end; justify-content:flex-end;">
+          <div id="skySwatch" class="colorSwatch"></div>
+        </div>
+      </div>
+      <div class="grid2" style="margin-top:10px;">
+        <div class="col"><div class="label">R</div><input id="setSkyR" class="input" type="number" min="0" max="255" step="1"></div>
+        <div class="col"><div class="label">G</div><input id="setSkyG" class="input" type="number" min="0" max="255" step="1"></div>
+        <div class="col"><div class="label">B</div><input id="setSkyB" class="input" type="number" min="0" max="255" step="1"></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>墙/地板颜色</h3>
+      <div class="help">预设 + RGB 自定义。</div>
+
+      <div class="grid2">
+        <div class="col">
+          <div class="label">墙体预设</div>
+          <select id="setWallPreset" class="input">
+            <option value="classic">经典蓝</option>
+            <option value="stone">石灰</option>
+            <option value="neon">霓虹紫</option>
+            <option value="dark">深灰</option>
+            <option value="custom">自定义 RGB</option>
+          </select>
+        </div>
+        <div class="col" style="display:flex;align-items:flex-end;justify-content:flex-end;">
+          <div id="wallSwatch" class="colorSwatch"></div>
+        </div>
+      </div>
+      <div class="grid2" style="margin-top:10px;">
+        <div class="col"><div class="label">墙 R</div><input id="setWallR" class="input" type="number" min="0" max="255" step="1"></div>
+        <div class="col"><div class="label">G</div><input id="setWallG" class="input" type="number" min="0" max="255" step="1"></div>
+        <div class="col"><div class="label">B</div><input id="setWallB" class="input" type="number" min="0" max="255" step="1"></div>
+      </div>
+
+      <div class="grid2" style="margin-top:12px;">
+        <div class="col">
+          <div class="label">地板预设</div>
+          <select id="setFloorPreset" class="input">
+            <option value="deep">深色</option>
+            <option value="sand">沙色</option>
+            <option value="ice">冰蓝</option>
+            <option value="dark">黑灰</option>
+            <option value="custom">自定义 RGB</option>
+          </select>
+        </div>
+        <div class="col" style="display:flex;align-items:flex-end;justify-content:flex-end;">
+          <div id="floorSwatch" class="colorSwatch"></div>
+        </div>
+      </div>
+      <div class="grid2" style="margin-top:10px;">
+        <div class="col"><div class="label">地 R</div><input id="setFloorR" class="input" type="number" min="0" max="255" step="1"></div>
+        <div class="col"><div class="label">G</div><input id="setFloorG" class="input" type="number" min="0" max="255" step="1"></div>
+        <div class="col"><div class="label">B</div><input id="setFloorB" class="input" type="number" min="0" max="255" step="1"></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="collapseBtn" id="advToggle">
+        <span>高级</span><span id="advArrow">▸</span>
+      </div>
+      <div class="collapseBody" id="advBody">
+        <div class="help">这些是“画面效果”调节：尽量用浏览器友好的方式实现（CSS/渲染器参数）。</div>
+
+        <div class="grid2">
+          <div class="col">
+            <div class="label">FOV（视角）</div>
+            <div class="rangeRow">
+              <input id="setFovRange" type="range" min="50" max="100" step="1">
+              <input id="setFovValue" class="input miniInput" type="number" min="50" max="100" step="1">
+            </div>
+          </div>
+        </div>
+
+        <div class="grid2">
+          <div class="col">
+            <div class="label">对比度</div>
+            <div class="rangeRow">
+              <input id="setContrastRange" type="range" min="0.6" max="1.6" step="0.01">
+              <input id="setContrastValue" class="input miniInput" type="number" min="0.6" max="1.6" step="0.01">
+            </div>
+          </div>
+        </div>
+
+        <div class="grid2">
+          <div class="col">
+            <div class="label">亮度</div>
+            <div class="rangeRow">
+              <input id="setBrightnessRange" type="range" min="0.6" max="1.6" step="0.01">
+              <input id="setBrightnessValue" class="input miniInput" type="number" min="0.6" max="1.6" step="0.01">
+            </div>
+          </div>
+        </div>
+
+        <div class="grid2">
+          <div class="col">
+            <div class="label">清晰度（像素倍率）</div>
+            <div class="rangeRow">
+              <input id="setSharpnessRange" type="range" min="0.7" max="1.6" step="0.01">
+              <input id="setSharpnessValue" class="input miniInput" type="number" min="0.7" max="1.6" step="0.01">
+            </div>
+          </div>
+        </div>
+
+        <div class="toggleRow">
+          <div><span>动态模糊（移动时轻微 blur）</span><small>纯 CSS 模糊；弱设备建议关闭</small></div>
+          <input id="setMotionBlur" type="checkbox">
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>玩家信息导出 / 导入（加密字符串）</h3>
+      <div class="help">用于迁移：最佳用时、最高分、设置等。复制粘贴即可。</div>
+      <div class="grid2">
+        <div class="col"><button id="btnExport" class="btnWide">导出</button></div>
+        <div class="col"><button id="btnImport" class="btnWide secondary">导入</button></div>
+      </div>
+      <div style="margin-top:10px;">
+        <div class="label">加密字符串</div>
+        <textarea id="transferText" class="input" placeholder="点击“导出”生成；或粘贴后点“导入”"></textarea>
+      </div>
+      <div class="help" style="margin-top:8px;">注：为方便复制的“加密打包字符串”，不是强安全方案（浏览器端固定密钥）。</div>
+    </div>
+
+    <div class="actions">
+      <button id="settingsApply" class="btnWide">应用</button>
+      <button id="settingsCancel" class="btnWide secondary">取消</button>
+    </div>
+  </div>
+
+<script>
+(() => {
+  // =========================================================
+  // 持久化
+  // =========================================================
+  const PREF_KEY = "maze3d_prefs_v2_modes";
+  function safeParseJSON(s){ try { return JSON.parse(s); } catch { return null; } }
+  function savePrefs(p){ localStorage.setItem(PREF_KEY, JSON.stringify(p)); }
+  function loadPrefs(){ const raw = localStorage.getItem(PREF_KEY); const o = raw ? safeParseJSON(raw) : null; return (o && typeof o === "object") ? o : null; }
+
+  // =========================================================
+  // 游戏模式
+  // =========================================================
+  const MODES = {
+    normal: { name:"普通模式" },
+    chase:  { name:"追逐模式" },
+    pacman: { name:"吃豆人模式" }
+  };
+  let gameMode = "normal"; // 当前模式
+
+  // =========================================================
+  // 参数（默认）
+  // =========================================================
+  let MAZE_W = 31;
+  let MAZE_H = 31;
+
+  const CELL = 4;
+  const WALL_H = 3.0;
+  const PLAYER_R = 0.55;
+  const SPEED = 6.0;
+
+  let lookSensitivity = 0.0026;
+  const JOY_RADIUS = 56;
+
+  const settings = {
+    minimapEnabled: true,
+    minimapVisible: true,
+    showEntityOnMinimap: true,
+    timerEnabled: true,
+    scoreEnabled: true,
+    showEntityModels: true,
+    cameraShake: true,
+    minimalMode: false,
+
+    sky: { preset:"default", r:110, g:150, b:185 },
+
+    menuBg: { preset:"dark", r:11, g:15, b:20 },
+
+    wall: { preset:"classic", r:42, g:58, b:87 },
+    floor:{ preset:"deep", r:16, g:24, b:38 },
+
+    adv: {
+      fov: 75,
+      contrast: 1.0,
+      brightness: 1.0,
+      sharpness: 1.0,
+      motionBlur: false
+    }
+  };
+
+  // 载入
+  (function applyPersistedPrefs(){
+    const p = loadPrefs();
+    if (!p) return;
+
+    if (typeof p.MAZE_W === "number") MAZE_W = p.MAZE_W;
+    if (typeof p.MAZE_H === "number") MAZE_H = p.MAZE_H;
+    if (typeof p.lookSensitivity === "number") lookSensitivity = p.lookSensitivity;
+    if (typeof p.gameMode === "string" && MODES[p.gameMode]) gameMode = p.gameMode;
+
+    if (p.settings && typeof p.settings === "object") {
+      const s = p.settings;
+      for (const k of ["minimapEnabled","minimapVisible","showEntityOnMinimap","timerEnabled","scoreEnabled","showEntityModels","cameraShake"]) {
+        if (typeof s[k] === "boolean") settings[k] = s[k];
+      }
+      if (s.sky) Object.assign(settings.sky, s.sky);
+      if (s.menuBg) Object.assign(settings.menuBg, s.menuBg);
+      if (s.wall) Object.assign(settings.wall, s.wall);
+      if (s.floor) Object.assign(settings.floor, s.floor);
+      if (s.adv) Object.assign(settings.adv, s.adv);
+    }
+  })();
+
+  function persistCurrentPrefs(){
+    savePrefs({
+      MAZE_W, MAZE_H,
+      lookSensitivity,
+      gameMode,
+      settings
+    });
+  }
+
+  // =========================================================
+  // 同条件记录（按：模式 + 尺寸 + 关键开关）
+  // =========================================================
+  function condObj() {
+    return {
+      mode: gameMode,
+      w: MAZE_W, h: MAZE_H,
+      minimapEnabled: !!settings.minimapEnabled,
+      showEntityOnMinimap: !!settings.showEntityOnMinimap,
+      showEntityModels: !!settings.showEntityModels,
+      timerEnabled: !!settings.timerEnabled,
+      scoreEnabled: !!settings.scoreEnabled
+    };
+  }
+  function condKey(){
+    const o = condObj();
+    const json = JSON.stringify(o);
+    // 简单 hash（稳定、可读）
+    let h = 2166136261;
+    for (let i=0;i<json.length;i++){
+      h ^= json.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return `m2_${(h>>>0).toString(16)}`;
+  }
+  function recordKey(){ return `maze3d_record_${condKey()}`; }
+  function loadRecord(){
+    const raw = localStorage.getItem(recordKey());
+    const o = raw ? safeParseJSON(raw) : null;
+    return (o && typeof o === "object") ? o : { bestScore:null, bestTime:null };
+  }
+  function saveRecord(next){
+    localStorage.setItem(recordKey(), JSON.stringify(next));
+  }
+
+  function formatMs(ms){
+    const s = ms / 1000;
+    const m = Math.floor(s / 60);
+    const sec = s - m*60;
+    const mm = String(m).padStart(2,'0');
+    const ss = String(Math.floor(sec)).padStart(2,'0');
+    const t = (sec % 1).toFixed(1).slice(1);
+    return `${mm}:${ss}${t}`;
+  }
+
+  // =========================================================
+  // Three.js 场景
+  // =========================================================
+  const scene = new THREE.Scene();
+
+  const camera = new THREE.PerspectiveCamera(settings.adv.fov, innerWidth/innerHeight, 0.1, 300);
+  camera.position.set(0, 1.6, 0);
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2) * settings.adv.sharpness);
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.toneMappingExposure = settings.adv.brightness;
+  document.body.appendChild(renderer.domElement);
+
+  // CSS 画面效果
+  function applyCanvasFilters(extraBlurPx=0){
+    const c = clampNum(settings.adv.contrast, 0.6, 1.6);
+    const b = clampNum(settings.adv.brightness, 0.6, 1.6);
+    const blur = settings.adv.motionBlur ? extraBlurPx : 0;
+    renderer.domElement.style.filter = `contrast(${c}) brightness(${b}) blur(${blur}px)`;
+  }
+  applyCanvasFilters(0);
+
+  scene.add(new THREE.HemisphereLight(0xaad6ff, 0x1b2230, 0.65));
+  const dir = new THREE.DirectionalLight(0xffffff, 0.75);
+  dir.position.set(10, 20, 10);
+  scene.add(dir);
+
+  // 材质颜色（墙/地）
+  function rgbToHex(r,g,b){ return (r<<16) | (g<<8) | b; }
+  const floorMat = new THREE.MeshStandardMaterial({ color: rgbToHex(settings.floor.r, settings.floor.g, settings.floor.b), roughness: 0.95, metalness: 0.0 });
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(500, 500), floorMat);
+  floor.rotation.x = -Math.PI / 2;
+  scene.add(floor);
+
+  const wallMat = new THREE.MeshStandardMaterial({ color: rgbToHex(settings.wall.r, settings.wall.g, settings.wall.b), roughness: 0.7, metalness: 0.05 });
+  const wallGeo = new THREE.BoxGeometry(CELL, WALL_H, CELL);
+
+  // 终点（普通/追逐）
+  const goalMat = new THREE.MeshStandardMaterial({ color: 0x6ee7ff, roughness: 0.3, metalness: 0.2, emissive: 0x184b66 });
+  const goal = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 0.2, 32), goalMat);
+  goal.position.y = 0.12;
+  scene.add(goal);
+
+  // 宝物（普通/追逐）
+  const treasureMat = new THREE.MeshStandardMaterial({ color: 0xffd166, roughness: 0.25, metalness: 0.25, emissive: 0x4a3a00 });
+  const treasureGeo = new THREE.TetrahedronGeometry(0.45);
+  const treasureGroup = new THREE.Group();
+  scene.add(treasureGroup);
+
+  // 宝物数据（普通/追逐）
+  let treasures = []; // {mesh, cell:{x,y}, collected:boolean}
+
+  function clearTreasures(){
+    for (const t of treasures){
+      if (t && t.mesh) treasureGroup.remove(t.mesh);
+    }
+    treasures = [];
+    treasureTotal = 0;
+  }
+
+  function placeTreasures(){
+    treasures = [];
+    treasureTotal = computeTreasureCount(MAZE_W, MAZE_H);
+
+    const startCell = {x:0, y:1};
+    const goalCell  = {x:MAZE_W-1, y:MAZE_H-2};
+
+    const man = (a,b)=> Math.abs(a.x-b.x) + Math.abs(a.y-b.y);
+
+    const picks = [];
+    const minStartDist = Math.max(6, Math.floor(Math.min(MAZE_W, MAZE_H) / 4));
+    const minBetween   = Math.max(7, Math.floor(Math.min(MAZE_W, MAZE_H) / 5));
+
+    for (let i=0;i<treasureTotal;i++){
+      let chosen = null;
+
+      // 尽量：离起点远、离终点稍远、彼此分散
+      for (let tries=0; tries<1200 && !chosen; tries++){
+        const x = 1 + ((Math.random()*(MAZE_W-2))|0);
+        const y = 1 + ((Math.random()*(MAZE_H-2))|0);
+        if (!mazeGrid || mazeGrid[y][x]!==0) continue;
+
+        const c = {x,y};
+        if (man(c, startCell) < minStartDist) continue;
+        if (man(c, goalCell) < 5) continue;
+
+        let ok = true;
+        for (const p of picks){
+          if (man(c,p) < minBetween) { ok = false; break; }
+        }
+        if (!ok) continue;
+
+        chosen = c;
+      }
+
+      // 兜底：随便找个可走格
+      if (!chosen){
+        for (let tries=0; tries<800 && !chosen; tries++){
+          const x = 1 + ((Math.random()*(MAZE_W-2))|0);
+          const y = 1 + ((Math.random()*(MAZE_H-2))|0);
+          if (!mazeGrid || mazeGrid[y][x]!==0) continue;
+          chosen = {x,y};
+        }
+      }
+      if (!chosen) chosen = {x:1, y:1};
+
+      picks.push(chosen);
+
+      const mesh = new THREE.Mesh(treasureGeo, treasureMat);
+      mesh.position.set(mazeOffsetX + chosen.x*CELL, 0.75, mazeOffsetZ + chosen.y*CELL);
+      treasureGroup.add(mesh);
+      treasures.push({ mesh, cell: chosen, collected:false });
+    }
+  }
+
+
+  // 吃豆人豆子（Instanced）
+  const beanGeo = new THREE.SphereGeometry(0.18, 10, 10);
+  const beanMat = new THREE.MeshStandardMaterial({ color: 0xfff2a8, roughness: 0.6, metalness: 0.0, emissive: 0x2a2200 });
+  let beanMesh = null; // InstancedMesh
+  let beanCells = [];  // {x,y}
+  let beanAlive = null; // Uint8Array
+  let beansLeft = 0;
+
+  // 玩家
+  const player = { pos: new THREE.Vector3(0, 1.6, 0), yaw: 0, pitch: 0 };
+  const playerStart = new THREE.Vector3(0, 1.6, 0);
+
+  let wallBoxes = [];
+  let mazeGroup = new THREE.Group();
+  scene.add(mazeGroup);
+
+  // =========================================================
+  // UI 引用
+  // =========================================================
+  const menuEl = document.getElementById("menu");
+  const menuInner = document.getElementById("menuInner");
+  const menuFullscreenBtn = document.getElementById("menuFullscreenBtn");
+  const menuSettingsBtn = document.getElementById("menuSettingsBtn");
+
+  const modeNameEl = document.getElementById("modeName");
+  const infoEl = document.getElementById("info");
+
+  const timerRow = document.getElementById("timerRow");
+  const timeNowEl = document.getElementById("timeNow");
+  const timeBestEl = document.getElementById("timeBest");
+
+  const collectLabelEl = document.getElementById("collectLabel");
+  const collectNowEl = document.getElementById("collectNow");
+  const collectAllEl = document.getElementById("collectAll");
+  const lineCollect = document.getElementById("lineCollect");
+
+  const scoreNowEl = document.getElementById("scoreNow");
+  const scoreBestEl = document.getElementById("scoreBest");
+
+  const lifeRow = document.getElementById("lifeRow");
+  const lifeNowEl = document.getElementById("lifeNow");
+
+  const restartBtn = document.getElementById("restartBtn");
+  const fullscreenBtn = document.getElementById("fullscreenBtn");
+  const settingsBtn = document.getElementById("settingsBtn");
+  const minimalBtn = document.getElementById("minimalBtn");
+  const menuBtn = document.getElementById("menuBtn");
+
+  const minimalExitBtn = document.getElementById("minimalExit");
+  const minimalTimeEl = document.getElementById("minimalTime");
+
+  const minimalInfoWrap = document.getElementById("minimalInfoWrap");
+  const minimalInfoToggle = document.getElementById("minimalInfoToggle");
+  const minimalInfoEl = document.getElementById("minimalInfo");
+  let minimalInfoCollapsed = false;
+
+  const minimapWrap = document.getElementById("minimapWrap");
+  const minimapCanvas = document.getElementById("minimap");
+  const mmCtx = minimapCanvas.getContext("2d");
+
+  const backdrop = document.getElementById("backdrop");
+
+  const msgEl = document.getElementById("msg");
+  const msgTitle = document.getElementById("msgTitle");
+  const msgText = document.getElementById("msgText");
+  const msgOk = document.getElementById("msgOk");
+  const msgRestart = document.getElementById("msgRestart");
+  const msgToMenu = document.getElementById("msgToMenu");
+
+  const settingsEl = document.getElementById("settings");
+  const settingsClose = document.getElementById("settingsClose");
+  const settingsApply = document.getElementById("settingsApply");
+  const settingsCancel = document.getElementById("settingsCancel");
+
+  // 设置控件
+  const setW = document.getElementById("setW");
+  const setH = document.getElementById("setH");
+  const setMinimapEnabled = document.getElementById("setMinimapEnabled");
+  const setMinimapVisible = document.getElementById("setMinimapVisible");
+  const setShowEntityOnMinimap = document.getElementById("setShowEntityOnMinimap");
+  const setTimerEnabled = document.getElementById("setTimerEnabled");
+  const setScoreEnabled = document.getElementById("setScoreEnabled");
+  const setShowEntityModels = document.getElementById("setShowEntityModels");
+  const setCameraShake = document.getElementById("setCameraShake");
+
+  const setLookRange = document.getElementById("setLookRange");
+  const setLookValue = document.getElementById("setLookValue");
+
+  const setSkyPreset = document.getElementById("setSkyPreset");
+  const setSkyR = document.getElementById("setSkyR");
+  const setSkyG = document.getElementById("setSkyG");
+  const setSkyB = document.getElementById("setSkyB");
+  const skySwatch = document.getElementById("skySwatch");
+
+  const setMenuBgPreset = document.getElementById("setMenuBgPreset");
+  const setMenuBgR = document.getElementById("setMenuBgR");
+  const setMenuBgG = document.getElementById("setMenuBgG");
+  const setMenuBgB = document.getElementById("setMenuBgB");
+  const menuBgSwatch = document.getElementById("menuBgSwatch");
+
+  const setWallPreset = document.getElementById("setWallPreset");
+  const setWallR = document.getElementById("setWallR");
+  const setWallG = document.getElementById("setWallG");
+  const setWallB = document.getElementById("setWallB");
+  const wallSwatch = document.getElementById("wallSwatch");
+
+  const setFloorPreset = document.getElementById("setFloorPreset");
+  const setFloorR = document.getElementById("setFloorR");
+  const setFloorG = document.getElementById("setFloorG");
+  const setFloorB = document.getElementById("setFloorB");
+  const floorSwatch = document.getElementById("floorSwatch");
+
+  const advToggle = document.getElementById("advToggle");
+  const advArrow = document.getElementById("advArrow");
+  const advBody = document.getElementById("advBody");
+
+  const setFovRange = document.getElementById("setFovRange");
+  const setFovValue = document.getElementById("setFovValue");
+  const setContrastRange = document.getElementById("setContrastRange");
+  const setContrastValue = document.getElementById("setContrastValue");
+  const setBrightnessRange = document.getElementById("setBrightnessRange");
+  const setBrightnessValue = document.getElementById("setBrightnessValue");
+  const setSharpnessRange = document.getElementById("setSharpnessRange");
+  const setSharpnessValue = document.getElementById("setSharpnessValue");
+  const setMotionBlur = document.getElementById("setMotionBlur");
+
+  const btnExport = document.getElementById("btnExport");
+  const btnImport = document.getElementById("btnImport");
+  const transferText = document.getElementById("transferText");
+
+  // =========================================================
+  // 弹窗与暂停
+  // =========================================================
+  let activeModal = null; // 'msg' | 'settings' | null
+  let gamePaused = false;
+  function setPaused(p){
+    if (gamePaused === p) return;
+    gamePaused = p;
+    if (p) {
+      if (settings.timerEnabled && timerRunning) {
+        elapsedMs += performance.now() - timerStartMs;
+        timerRunning = false;
+      }
+    }
+  }
+  function showBackdrop(){ backdrop.style.display = "block"; }
+  function hideBackdrop(){ backdrop.style.display = "none"; }
+
+  function closeAllModals(){
+    msgEl.style.display = "none";
+    settingsEl.style.display = "none";
+    activeModal = null;
+    hideBackdrop();
+    setPaused(false);
+    syncMinimapVisibility();
+  }
+  function showMsg(title, html){
+    if (settings.minimalMode) exitMinimal();
+    settingsEl.style.display = "none";
+    msgTitle.textContent = title;
+    msgText.innerHTML = html;
+    msgEl.style.display = "block";
+    activeModal = "msg";
+    showBackdrop();
+    setPaused(true);
+    syncMinimapVisibility();
+  }
+  function showSettings(){
+    if (settings.minimalMode) exitMinimal();
+    msgEl.style.display = "none";
+    activeModal = "settings";
+    showBackdrop();
+    setPaused(true);
+
+    // 填充
+    setW.value = MAZE_W; setH.value = MAZE_H;
+    setMinimapEnabled.checked = settings.minimapEnabled;
+    setMinimapVisible.checked = settings.minimapVisible;
+    setShowEntityOnMinimap.checked = settings.showEntityOnMinimap;
+    setTimerEnabled.checked = settings.timerEnabled;
+    setScoreEnabled.checked = settings.scoreEnabled;
+    setShowEntityModels.checked = settings.showEntityModels;
+    setCameraShake.checked = settings.cameraShake;
+
+    setLookRange.value = String(lookSensitivity);
+    setLookValue.value = String(lookSensitivity);
+
+    setSkyPreset.value = settings.sky.preset;
+    setSkyR.value = settings.sky.r;
+    setSkyG.value = settings.sky.g;
+    setSkyB.value = settings.sky.b;
+
+    setMenuBgPreset.value = settings.menuBg.preset;
+    setMenuBgR.value = settings.menuBg.r;
+    setMenuBgG.value = settings.menuBg.g;
+    setMenuBgB.value = settings.menuBg.b;
+
+    setWallPreset.value = settings.wall.preset;
+    setWallR.value = settings.wall.r;
+    setWallG.value = settings.wall.g;
+    setWallB.value = settings.wall.b;
+
+    setFloorPreset.value = settings.floor.preset;
+    setFloorR.value = settings.floor.r;
+    setFloorG.value = settings.floor.g;
+    setFloorB.value = settings.floor.b;
+
+    setFovRange.value = String(settings.adv.fov);
+    setFovValue.value = String(settings.adv.fov);
+    setContrastRange.value = String(settings.adv.contrast);
+    setContrastValue.value = String(settings.adv.contrast);
+    setBrightnessRange.value = String(settings.adv.brightness);
+    setBrightnessValue.value = String(settings.adv.brightness);
+    setSharpnessRange.value = String(settings.adv.sharpness);
+    setSharpnessValue.value = String(settings.adv.sharpness);
+    setMotionBlur.checked = !!settings.adv.motionBlur;
+
+    // 预览 swatch
+    previewSwatches();
+
+    settingsEl.style.display = "block";
+    minimapWrap.style.display = "none";
+    settingsEl.scrollTop = 0;
+  }
+  function hideSettings(){
+    settingsEl.style.display = "none";
+    activeModal = null;
+    hideBackdrop();
+    setPaused(false);
+    syncMinimapVisibility();
+  }
+
+  msgOk.onclick = () => closeAllModals();
+  msgRestart.onclick = () => { closeAllModals(); buildNewMaze(true); };
+  msgToMenu.onclick = () => { closeAllModals(); goMenu(); };
+
+  settingsBtn.onclick = () => showSettings();
+  menuSettingsBtn.onclick = () => showSettings();
+  settingsClose.onclick = hideSettings;
+  settingsCancel.onclick = hideSettings;
+  backdrop.addEventListener("click", () => { if (activeModal === "settings") hideSettings(); });
+
+  // =========================================================
+  // 全屏
+  // =========================================================
+  function isFullscreen(){
+    return !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement);
+  }
+  async function enterFullscreen(){
+    const el = document.documentElement;
+    const req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+    if (!req) { showMsg("提示", "当前浏览器不支持全屏 API（iOS Safari 常见）。"); return; }
+    try { await req.call(el); } catch (e) {}
+  }
+  async function exitFullscreen(){
+    const ex = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen;
+    if (!ex) return;
+    try { await ex.call(document); } catch (e) {}
+  }
+  function syncFullscreenBtn(){
+    const t = isFullscreen() ? "退出全屏" : "全屏";
+    fullscreenBtn.textContent = t;
+    menuFullscreenBtn.textContent = t;
+  }
+  fullscreenBtn.onclick = async () => { if (isFullscreen()) await exitFullscreen(); else await enterFullscreen(); syncFullscreenBtn(); };
+  menuFullscreenBtn.onclick = fullscreenBtn.onclick;
+  ["fullscreenchange","webkitfullscreenchange","mozfullscreenchange","MSFullscreenChange"].forEach(evt => document.addEventListener(evt, syncFullscreenBtn));
+
+  // =========================================================
+  // 极简模式
+  // =========================================================
+  function enterMinimal(){
+    if (activeModal) closeAllModals();
+    settings.minimalMode = true;
+    document.body.classList.add("minimal");
+    minimalExitBtn.style.display = "inline-flex";
+    minimalTimeEl.style.display = settings.timerEnabled ? "block" : "none";
+    minimalInfoWrap.style.display = "block";
+    syncMinimapVisibility();
+    persistCurrentPrefs();
+  }
+  function exitMinimal(){
+    settings.minimalMode = false;
+    document.body.classList.remove("minimal");
+    minimalExitBtn.style.display = "none";
+    minimalTimeEl.style.display = "none";
+    minimalInfoWrap.style.display = "none";
+    syncMinimapVisibility();
+    persistCurrentPrefs();
+  }
+  minimalBtn.onclick = enterMinimal;
+  minimalExitBtn.onclick = exitMinimal;
+
+  minimalInfoToggle.onclick = () => {
+    minimalInfoCollapsed = !minimalInfoCollapsed;
+    minimalInfoToggle.textContent = minimalInfoCollapsed ? "▸ 信息" : "▾ 信息";
+    minimalInfoEl.style.display = minimalInfoCollapsed ? "none" : "block";
+  };
+
+  // =========================================================
+  // 颜色 / 天空 / 主界面背景
+  // =========================================================
+  function clampNum(v,a,b){ return Math.max(a, Math.min(b, v)); }
+
+  const SKY_PRESETS = {
+    default: { r:110, g:150, b:185 },
+    sky:     { r:120, g:175, b:220 },
+    sunset:  { r:240, g:170, b:120 },
+    mint:    { r:120, g:210, b:200 }
+  };
+  const MENU_BG_PRESETS = {
+    dark:   { r:11, g:15, b:20 },
+    blue:   { r:18, g:28, b:40 },
+    mint:   { r:16, g:40, b:38 },
+    sunset: { r:46, g:26, b:22 }
+  };
+  const WALL_PRESETS = {
+    classic:{ r:42, g:58, b:87 },
+    stone:  { r:160, g:170, b:185 },
+    neon:   { r:112, g:86, b:255 },
+    dark:   { r:40, g:44, b:54 }
+  };
+  const FLOOR_PRESETS = {
+    deep: { r:16, g:24, b:38 },
+    sand: { r:90, g:78, b:52 },
+    ice:  { r:35, g:58, b:74 },
+    dark: { r:10, g:12, b:16 }
+  };
+
+  function applySkyColor(r,g,b){
+    const c = new THREE.Color(`rgb(${r},${g},${b})`);
+    scene.background = c;
+    scene.fog = new THREE.Fog(c, 10, 160);
+    skySwatch.style.background = `rgb(${r},${g},${b})`;
+  }
+  function applyMenuBg(r,g,b){
+    menuEl.style.background = `rgb(${r},${g},${b})`;
+    menuBgSwatch.style.background = `rgb(${r},${g},${b})`;
+  }
+  function applyWallFloor(rw,gw,bw, rf,gf,bf){
+    wallSwatch.style.background = `rgb(${rw},${gw},${bw})`;
+    floorSwatch.style.background = `rgb(${rf},${gf},${bf})`;
+    wallMat.color = new THREE.Color(`rgb(${rw},${gw},${bw})`);
+    floorMat.color = new THREE.Color(`rgb(${rf},${gf},${bf})`);
+  }
+
+  function previewSwatches(){
+    const sr = clampNum(parseInt(setSkyR.value,10)||0, 0,255);
+    const sg = clampNum(parseInt(setSkyG.value,10)||0, 0,255);
+    const sb = clampNum(parseInt(setSkyB.value,10)||0, 0,255);
+    skySwatch.style.background = `rgb(${sr},${sg},${sb})`;
+
+    const mr = clampNum(parseInt(setMenuBgR.value,10)||0, 0,255);
+    const mg = clampNum(parseInt(setMenuBgG.value,10)||0, 0,255);
+    const mb = clampNum(parseInt(setMenuBgB.value,10)||0, 0,255);
+    menuBgSwatch.style.background = `rgb(${mr},${mg},${mb})`;
+
+    const wr = clampNum(parseInt(setWallR.value,10)||0, 0,255);
+    const wg = clampNum(parseInt(setWallG.value,10)||0, 0,255);
+    const wb = clampNum(parseInt(setWallB.value,10)||0, 0,255);
+    wallSwatch.style.background = `rgb(${wr},${wg},${wb})`;
+
+    const fr = clampNum(parseInt(setFloorR.value,10)||0, 0,255);
+    const fg = clampNum(parseInt(setFloorG.value,10)||0, 0,255);
+    const fb = clampNum(parseInt(setFloorB.value,10)||0, 0,255);
+    floorSwatch.style.background = `rgb(${fr},${fg},${fb})`;
+  }
+  [setSkyR,setSkyG,setSkyB,setMenuBgR,setMenuBgG,setMenuBgB,setWallR,setWallG,setWallB,setFloorR,setFloorG,setFloorB].forEach(inp => inp.addEventListener("input", previewSwatches));
+
+  setSkyPreset.addEventListener("change", () => {
+    if (setSkyPreset.value !== "custom") {
+      const c = SKY_PRESETS[setSkyPreset.value] || SKY_PRESETS.default;
+      setSkyR.value=c.r; setSkyG.value=c.g; setSkyB.value=c.b;
+      previewSwatches();
+    }
+  });
+  setMenuBgPreset.addEventListener("change", () => {
+    if (setMenuBgPreset.value !== "custom") {
+      const c = MENU_BG_PRESETS[setMenuBgPreset.value] || MENU_BG_PRESETS.dark;
+      setMenuBgR.value=c.r; setMenuBgG.value=c.g; setMenuBgB.value=c.b;
+      previewSwatches();
+    }
+  });
+  setWallPreset.addEventListener("change", () => {
+    if (setWallPreset.value !== "custom") {
+      const c = WALL_PRESETS[setWallPreset.value] || WALL_PRESETS.classic;
+      setWallR.value=c.r; setWallG.value=c.g; setWallB.value=c.b;
+      previewSwatches();
+    }
+  });
+  setFloorPreset.addEventListener("change", () => {
+    if (setFloorPreset.value !== "custom") {
+      const c = FLOOR_PRESETS[setFloorPreset.value] || FLOOR_PRESETS.deep;
+      setFloorR.value=c.r; setFloorG.value=c.g; setFloorB.value=c.b;
+      previewSwatches();
+    }
+  });
+
+  // Advanced collapse
+  let advOpen = false;
+  advToggle.onclick = () => {
+    advOpen = !advOpen;
+    advBody.style.display = advOpen ? "block" : "none";
+    advArrow.textContent = advOpen ? "▾" : "▸";
+  };
+
+  function syncRangePair(rangeEl, valueEl, min, max){
+    const v = clampNum(Number(rangeEl.value), min, max);
+    rangeEl.value = String(v);
+    valueEl.value = String(v);
+    return v;
+  }
+  function bindRangePair(rangeEl, valueEl, min, max, onChange){
+    const syncFromRange = () => { const v = syncRangePair(rangeEl, valueEl, min, max); onChange(v); };
+    const syncFromValue = () => {
+      const v = clampNum(Number(valueEl.value), min, max);
+      rangeEl.value = String(v);
+      valueEl.value = String(v);
+      onChange(v);
+    };
+    rangeEl.addEventListener("input", syncFromRange);
+    valueEl.addEventListener("input", syncFromValue);
+  }
+
+  bindRangePair(setLookRange, setLookValue, 0.001, 0.01, v => {});
+  bindRangePair(setFovRange, setFovValue, 50, 100, v => {});
+  bindRangePair(setContrastRange, setContrastValue, 0.6, 1.6, v => {});
+  bindRangePair(setBrightnessRange, setBrightnessValue, 0.6, 1.6, v => {});
+  bindRangePair(setSharpnessRange, setSharpnessValue, 0.7, 1.6, v => {});
+
+  // =========================================================
+  // 迷宫生成（DFS + 编织 + 打洞）
+  // =========================================================
+  function generateMaze(w,h,opts={}){
+    const braid = opts.braid ?? 0.50;
+    const punch = opts.punch ?? 0.09;
+    if (w%2===0) w++; if (h%2===0) h++;
+
+    const grid = Array.from({length:h}, () => Array(w).fill(1));
+    const dirs = [[0,-2],[2,0],[0,2],[-2,0]];
+    const inb = (x,y)=> x>0 && x<w-1 && y>0 && y<h-1;
+    function shuffle(a){
+      for (let i=a.length-1;i>0;i--){
+        const j = (Math.random()*(i+1))|0;
+        [a[i],a[j]]=[a[j],a[i]];
+      }
+      return a;
+    }
+    function carve(x,y){
+      grid[y][x]=0;
+      for (const [dx,dy] of shuffle(dirs.slice())){
+        const nx=x+dx, ny=y+dy;
+        if (inb(nx,ny) && grid[ny][nx]===1){
+          grid[y+dy/2][x+dx/2]=0;
+          carve(nx,ny);
+        }
+      }
+    }
+    carve(1,1);
+
+    grid[1][0]=0;
+    grid[h-2][w-1]=0;
+
+    function openNeighbors(x,y){
+      let c=0;
+      if (grid[y-1]?.[x]===0) c++;
+      if (grid[y+1]?.[x]===0) c++;
+      if (grid[y]?.[x-1]===0) c++;
+      if (grid[y]?.[x+1]===0) c++;
+      return c;
+    }
+    const neigh=[[0,-1],[1,0],[0,1],[-1,0]];
+    for (let y=1;y<h-1;y++){
+      for (let x=1;x<w-1;x++){
+        if (grid[y][x]!==0) continue;
+        if (openNeighbors(x,y)!==1) continue;
+        if (Math.random()>braid) continue;
+        const candidates=[];
+        for (const [dx,dy] of neigh){
+          const wx=x+dx, wy=y+dy;
+          const tx=x+dx*2, ty=y+dy*2;
+          if (!inb(tx,ty)) continue;
+          if (grid[wy][wx]!==1) continue;
+          if (grid[ty][tx]!==0) continue;
+          candidates.push([wx,wy]);
+        }
+        if (candidates.length){
+          const [wx,wy]=candidates[(Math.random()*candidates.length)|0];
+          grid[wy][wx]=0;
+        }
+      }
+    }
+
+    const tries=Math.floor(w*h*punch);
+    for (let i=0;i<tries;i++){
+      const x=1+((Math.random()*(w-2))|0);
+      const y=1+((Math.random()*(h-2))|0);
+      if (grid[y][x]!==1) continue;
+      if (x<=1||x>=w-2||y<=1||y>=h-2) continue;
+      let around=0;
+      if (grid[y-1][x]===0) around++;
+      if (grid[y+1][x]===0) around++;
+      if (grid[y][x-1]===0) around++;
+      if (grid[y][x+1]===0) around++;
+      if (around===0||around>=3) continue;
+      if (Math.random()<0.6) grid[y][x]=0;
+    }
+    return grid;
+  }
+
+  // =========================================================
+  // 小地图：探索 + 墙体高亮 + 玩家/终点/实体
+  // =========================================================
+  let mazeGrid = null;
+  let visited = null; // Uint8Array
+  let mazeOffsetX=0, mazeOffsetZ=0;
+  function idx(x,y){ return y*MAZE_W + x; }
+  function worldToCell(wx,wz){
+    const x = Math.round((wx - mazeOffsetX) / CELL);
+    const y = Math.round((wz - mazeOffsetZ) / CELL);
+    return {x,y};
+  }
+  function markVisitedByWorld(wx,wz){
+    if (!settings.minimapEnabled || !visited || !mazeGrid) return;
+    const {x,y} = worldToCell(wx,wz);
+    if (x<0||x>=MAZE_W||y<0||y>=MAZE_H) return;
+    if (mazeGrid[y][x]===0) visited[idx(x,y)] = 1;
+  }
+  function isVisited(x,y){
+    if (!visited) return false;
+    if (x<0||x>=MAZE_W||y<0||y>=MAZE_H) return false;
+    return visited[idx(x,y)]===1;
+  }
+
+  function drawDotAtCell(cx, cy, color, radiusPx, cellPx, offX, offY){
+    const px = offX + cx*cellPx + cellPx/2;
+    const py = offY + cy*cellPx + cellPx/2;
+    mmCtx.beginPath();
+    mmCtx.fillStyle = color;
+    mmCtx.arc(px, py, Math.max(2, radiusPx), 0, Math.PI*2);
+    mmCtx.fill();
+  }
+
+  function renderMinimap(){
+    if (!settings.minimapEnabled || !settings.minimapVisible) return;
+    if (!mazeGrid || !visited) return;
+
+    const W=minimapCanvas.width, H=minimapCanvas.height;
+    mmCtx.clearRect(0,0,W,H);
+    mmCtx.fillStyle="rgba(8,12,18,0.92)";
+    mmCtx.fillRect(0,0,W,H);
+
+    const cellPx=Math.floor(Math.min(W/MAZE_W, H/MAZE_H));
+    const offX=Math.floor((W-cellPx*MAZE_W)/2);
+    const offY=Math.floor((H-cellPx*MAZE_H)/2);
+
+    // 探索底色
+    mmCtx.fillStyle="rgba(120,180,255,0.12)";
+    for (let y=0;y<MAZE_H;y++){
+      for (let x=0;x<MAZE_W;x++){
+        if (isVisited(x,y)) mmCtx.fillRect(offX+x*cellPx, offY+y*cellPx, cellPx, cellPx);
+      }
+    }
+
+    // 墙：靠近已探索
+    mmCtx.fillStyle="rgba(234,242,255,0.85)";
+    for (let y=0;y<MAZE_H;y++){
+      for (let x=0;x<MAZE_W;x++){
+        if (mazeGrid[y][x]!==1) continue;
+        const near = isVisited(x+1,y)||isVisited(x-1,y)||isVisited(x,y+1)||isVisited(x,y-1);
+        if (!near) continue;
+        const px=offX+x*cellPx, py=offY+y*cellPx;
+        mmCtx.fillRect(px+1, py+1, Math.max(1, cellPx-2), Math.max(1, cellPx-2));
+      }
+    }
+
+    // 玩家（永远显示）
+    const pc = worldToCell(player.pos.x, player.pos.z);
+    drawDotAtCell(pc.x, pc.y, "rgba(255,120,120,0.95)", cellPx*0.35, cellPx, offX, offY);
+
+    // 终点（普通/追逐）
+    if (gameMode !== "pacman") {
+      const gc = worldToCell(goal.position.x, goal.position.z);
+      drawDotAtCell(gc.x, gc.y, "rgba(110,231,255,0.90)", cellPx*0.30, cellPx, offX, offY);
+    }
+
+    // 怪物/幽灵（仅在“已探索范围内”：实体 cell 必须 visited）
+    if (settings.showEntityOnMinimap) {
+      if (gameMode === "chase" && monster.active) {
+        const mc = worldToCell(monster.pos.x, monster.pos.z);
+        if (isVisited(mc.x, mc.y)) drawDotAtCell(mc.x, mc.y, "rgba(255,60,60,0.95)", cellPx*0.40, cellPx, offX, offY);
+      }
+      if (gameMode === "pacman") {
+        for (const g of ghosts) {
+          if (!g.active) continue;
+          const gc = worldToCell(g.pos.x, g.pos.z);
+          if (isVisited(gc.x, gc.y)) drawDotAtCell(gc.x, gc.y, g.mmColor, cellPx*0.35, cellPx, offX, offY);
+        }
+      }
+    }
+  }
+
+  function syncMinimapVisibility(){
+    if (activeModal === "settings") { minimapWrap.style.display="none"; return; }
+    const should = settings.minimapEnabled && settings.minimapVisible && gameState==="game";
+    minimapWrap.style.display = should ? "block" : "none";
+  }
+
+  // =========================================================
+  // 计时（暂停友好）
+  // =========================================================
+  let timerRunning=false, timerStartMs=0, elapsedMs=0;
+  let finished=false;
+  function syncTimerVisibility(){
+    timerRow.style.display = settings.timerEnabled ? "block" : "none";
+    minimalTimeEl.style.display = (settings.minimalMode && settings.timerEnabled && gameState==="game") ? "block" : "none";
+  }
+  function resetTimerUI(){
+    timerRunning=false; timerStartMs=0; elapsedMs=0; finished=false;
+    timeNowEl.textContent="00:00.0";
+    minimalTimeEl.textContent="00:00.0";
+    timeBestEl.textContent = "--";
+  }
+  function startTimerIfNeeded(){
+    if (!settings.timerEnabled || finished || timerRunning) return;
+    timerRunning=true; timerStartMs=performance.now();
+  }
+  function stopTimerIfRunning(){
+    if (!settings.timerEnabled || !timerRunning) return;
+    elapsedMs += performance.now() - timerStartMs;
+    timerRunning=false;
+  }
+  function updateTimerUI(){
+    if (!settings.timerEnabled) return;
+    const now = timerRunning ? (elapsedMs + (performance.now()-timerStartMs)) : elapsedMs;
+    const s = formatMs(now);
+    timeNowEl.textContent=s;
+    minimalTimeEl.textContent=s;
+  }
+  function finalizeTimer(){
+    if (!settings.timerEnabled) return { elapsed:null, best:null, isPB:false };
+    stopTimerIfRunning();
+    finished=true;
+    const rec = loadRecord();
+    let isPB=false;
+    if (rec.bestTime == null || elapsedMs < rec.bestTime) { rec.bestTime = elapsedMs; isPB=true; saveRecord(rec); }
+    return { elapsed: elapsedMs, best: rec.bestTime, isPB };
+  }
+
+  // =========================================================
+  // 分数 / 收集
+  // =========================================================
+  let currentScore=0;
+  let treasureCollected=0, treasureTotal=0;
+  let pacLives=3;
+
+  function updateRecordLabels(){
+    const rec = loadRecord();
+    timeBestEl.textContent = rec.bestTime==null ? "--" : formatMs(rec.bestTime);
+    scoreBestEl.textContent = rec.bestScore==null ? "--" : String(Math.floor(rec.bestScore));
+  }
+  function updateScoreUI(){
+    scoreNowEl.textContent = String(Math.floor(currentScore));
+    updateRecordLabels();
+  }
+  function computeTreasureCount(w,h){
+    const area=w*h;
+    return Math.max(3, Math.floor(area/180));
+  }
+
+  function recomputeLiveScore(){
+    // 三种模式统一一个“简单分数模型”
+    const base = MAZE_W*MAZE_H*2;
+    let collectBonus=0;
+
+    if (gameMode === "pacman") {
+      // 豆子：越快越好
+      const eaten = (beanAlive ? (beanCells.length - beansLeft) : 0);
+      collectBonus = eaten * 8;
+    } else {
+      collectBonus = treasureCollected * Math.floor((MAZE_W*MAZE_H)/30);
+    }
+
+    let timePenalty = 0;
+    if (settings.timerEnabled) {
+      const sec = (timerRunning ? (elapsedMs+(performance.now()-timerStartMs)) : elapsedMs) / 1000;
+      timePenalty = Math.floor(sec * (MAZE_W*MAZE_H) / 110);
+    }
+
+    // 追逐模式：给一点“风险加成”
+    const modeBonus = (gameMode==="chase") ? Math.floor(MAZE_W*MAZE_H*0.30) : 0;
+
+    currentScore = Math.max(0, base + collectBonus + modeBonus - timePenalty);
+  }
+
+  function finalizeScore(){
+    recomputeLiveScore();
+    // 成功额外加成（豆子全清/到达终点）
+    const successBonus = (gameMode==="pacman")
+      ? Math.floor((MAZE_W*MAZE_H) * 0.8)
+      : Math.floor((treasureCollected / Math.max(1, treasureTotal)) * (MAZE_W*MAZE_H));
+    currentScore += successBonus;
+
+    if (!settings.scoreEnabled) return { score: currentScore, best:null, isPB:false };
+
+    const rec = loadRecord();
+    let isPB=false;
+    if (rec.bestScore==null || currentScore > rec.bestScore) { rec.bestScore=currentScore; isPB=true; saveRecord(rec); }
+    return { score: currentScore, best: rec.bestScore, isPB };
+  }
+
+  function finalizeScoreOnFail(){
+    // 追逐模式失败不记录分数（按需求修复）
+    if (gameMode === "chase") return;
+
+    // 失败也可以记最高分（用户要求“同条件最高分/最短用时”——这里最短用时仅成功有意义；失败只记分）
+    recomputeLiveScore();
+    if (!settings.scoreEnabled) return;
+    const rec = loadRecord();
+    if (rec.bestScore==null || currentScore > rec.bestScore) { rec.bestScore=currentScore; saveRecord(rec); }
+  }
+
+  // =========================================================
+  // 碰撞：圆 vs AABB
+  // =========================================================
+  function clamp(v,a,b){ return Math.max(a, Math.min(b,v)); }
+  function resolveCollisions(nextPos){
+    const p = new THREE.Vector3(nextPos.x, player.pos.y, nextPos.z);
+    for (const w of wallBoxes){
+      const box=w.box;
+      const cx=clamp(p.x, box.min.x, box.max.x);
+      const cz=clamp(p.z, box.min.z, box.max.z);
+      const dx=p.x-cx, dz=p.z-cz;
+      const dist2=dx*dx+dz*dz;
+      if (dist2 < PLAYER_R*PLAYER_R){
+        const dist=Math.sqrt(dist2) || 0.0001;
+        const push = (PLAYER_R - dist);
+        p.x += (dx/dist)*push;
+        p.z += (dz/dist)*push;
+      }
+    }
+    return p;
+  }
+
+  // =========================================================
+  // 追逐模式：怪物（简化红球）
+  // =========================================================
+  const monster = {
+    mesh: null,
+    pos: new THREE.Vector3(0, 1.2, 0),
+    speed: 4.8,
+    active: false,
+    triggered: false,
+    lastPathAt: 0,
+    path: [],
+    cell: {x:0,y:1}
+  };
+  function ensureMonsterMesh(){
+    if (monster.mesh) return;
+    const g = new THREE.SphereGeometry(0.95, 18, 18);
+    const m = new THREE.MeshStandardMaterial({ color: 0xff3b3b, roughness: 0.35, metalness: 0.05, emissive: 0x3a0000 });
+    monster.mesh = new THREE.Mesh(g,m);
+    monster.mesh.castShadow = false;
+    scene.add(monster.mesh);
+  }
+  function setMonsterVisible(v){
+    if (!monster.mesh) return;
+    monster.mesh.visible = v && settings.showEntityModels && gameMode==="chase";
+  }
+  function spawnMonsterAtEntrance(){
+    ensureMonsterMesh();
+    monster.triggered=false;
+    monster.active=true;
+    monster.path=[];
+    // 放在入口外一点（视觉压迫）
+    monster.cell = {x:0, y:1};
+    const wx = mazeOffsetX + 0*CELL - CELL*1.2;
+    const wz = mazeOffsetZ + 1*CELL;
+    monster.pos.set(wx, 1.2, wz);
+    monster.mesh.position.copy(monster.pos);
+    setMonsterVisible(true);
+  }
+  function triggerMonsterIfNeeded(){
+    if (gameMode!=="chase" || !monster.active || monster.triggered) return;
+    // 进入迷宫一定“深度”：玩家走到 y >= 6 或 x >= 6
+    const pc = worldToCell(player.pos.x, player.pos.z);
+    if (pc.x >= 6 || pc.y >= 6) {
+      monster.triggered=true;
+      // 把怪物推进入口格内，开始追逐
+      monster.pos.set(mazeOffsetX + 0*CELL, 1.2, mazeOffsetZ + 1*CELL);
+      monster.cell = {x:0, y:1};
+      monster.mesh.position.copy(monster.pos);
+    }
+  }
+
+  function passableCell(x,y){
+    if (x<0||x>=MAZE_W||y<0||y>=MAZE_H) return false;
+    return mazeGrid && mazeGrid[y][x]===0;
+  }
+
+  function bfsNextStep(from, to){
+    // 简易 BFS（网格不大；每 0.4s 计算一次）
+    const fx=from.x, fy=from.y, tx=to.x, ty=to.y;
+    if (fx===tx && fy===ty) return null;
+
+    const qx = new Int16Array(MAZE_W*MAZE_H);
+    const qy = new Int16Array(MAZE_W*MAZE_H);
+    const prev = new Int32Array(MAZE_W*MAZE_H);
+    prev.fill(-1);
+
+    let qh=0, qt=0;
+    const sidx = fy*MAZE_W + fx;
+    qx[qt]=fx; qy[qt]=fy; qt++;
+    prev[sidx] = sidx;
+
+    const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+    let foundIdx = -1;
+
+    while (qh<qt){
+      const x=qx[qh], y=qy[qh]; qh++;
+      for (const [dx,dy] of dirs){
+        const nx=x+dx, ny=y+dy;
+        if (!passableCell(nx,ny)) continue;
+        const ni = ny*MAZE_W + nx;
+        if (prev[ni] !== -1) continue;
+        prev[ni] = y*MAZE_W + x;
+        if (nx===tx && ny===ty) { foundIdx = ni; qh = qt; break; }
+        qx[qt]=nx; qy[qt]=ny; qt++;
+      }
+    }
+    if (foundIdx === -1) return null;
+
+    // 回溯到 from 的下一步
+    let cur = foundIdx;
+    let p = prev[cur];
+    while (p !== sidx && p !== cur){
+      cur = p;
+      p = prev[cur];
+    }
+    const nx = cur % MAZE_W;
+    const ny = (cur / MAZE_W) | 0;
+    return {x:nx, y:ny};
+  }
+
+  function updateMonster(dt, now){
+    if (gameMode!=="chase" || !monster.active || !monster.triggered || finished) return;
+    // 低频 path 更新
+    if (now - monster.lastPathAt > 400){
+      monster.lastPathAt = now;
+      const mc = worldToCell(monster.pos.x, monster.pos.z);
+      const pc = worldToCell(player.pos.x, player.pos.z);
+      const step = bfsNextStep(mc, pc);
+      if (step) monster.path = [step];
+      else monster.path = [];
+    }
+
+    let targetPos = player.pos.clone();
+    if (monster.path.length){
+      const step = monster.path[0];
+      targetPos.set(mazeOffsetX + step.x*CELL, 1.2, mazeOffsetZ + step.y*CELL);
+    }
+
+    const dir = targetPos.clone().sub(monster.pos);
+    const dist = dir.length();
+    if (dist > 1e-6) dir.multiplyScalar(1/dist);
+
+    const speed = monster.speed * (dist>2 ? 1.05 : 1.0);
+    monster.pos.addScaledVector(dir, speed*dt);
+    monster.mesh.position.copy(monster.pos);
+
+    // 捕获判定
+    const dx = player.pos.x - monster.pos.x;
+    const dz = player.pos.z - monster.pos.z;
+    if (dx*dx + dz*dz < 1.2*1.2){
+      onGameFail("被怪物追上了！💀", "追逐模式失败：怪物抓住了你。");
+    }
+  }
+
+  // =========================================================
+  // 吃豆人：幽灵（4 个）
+  // =========================================================
+  const ghosts = [];
+  function makeGhost(colorHex, mmColor){
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.55, 16, 16), new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.4, metalness: 0.05, emissive: (colorHex & 0x202020) }));
+    const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.65, 14, 1, true), new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.6, metalness: 0.0, side: THREE.DoubleSide }));
+    body.position.y = 0.55;
+    skirt.position.y = 0.15;
+    g.add(body); g.add(skirt);
+    g.position.set(0, 0.8, 0);
+    scene.add(g);
+
+    return {
+      group: g,
+      pos: new THREE.Vector3(0, 0.8, 0),
+      speed: 3.5,
+      mmColor,
+      active: false,
+      lastPlanAt: 0,
+      dir: new THREE.Vector3(1,0,0)
+    };
+  }
+
+  function ensureGhosts(){
+    if (ghosts.length) return;
+    ghosts.push(makeGhost(0xff5aa5, "rgba(255,90,165,0.95)"));
+    ghosts.push(makeGhost(0x6dff6d, "rgba(109,255,109,0.95)"));
+    ghosts.push(makeGhost(0x64d9ff, "rgba(100,217,255,0.95)"));
+    ghosts.push(makeGhost(0xffc14f, "rgba(255,193,79,0.95)"));
+  }
+  function setGhostsVisible(v){
+    for (const g of ghosts) g.group.visible = v && settings.showEntityModels && gameMode==="pacman";
+  }
+
+  function randomPassableCellFarFromStart(minDist=6){
+    for (let k=0;k<800;k++){
+      const x = 1 + ((Math.random()*(MAZE_W-2))|0);
+      const y = 1 + ((Math.random()*(MAZE_H-2))|0);
+      if (!passableCell(x,y)) continue;
+      const d = Math.abs(x-0)+Math.abs(y-1);
+      if (d < minDist) continue;
+      return {x,y};
+    }
+    return {x:MAZE_W-2,y:MAZE_H-2};
+  }
+
+  function spawnGhosts(){
+    ensureGhosts();
+
+    // 尽量让 4 个幽灵分散：使用“最小距离 + 四象限优先”选点
+    const desired = [
+      {x:1, y:1},
+      {x:MAZE_W-2, y:1},
+      {x:1, y:MAZE_H-2},
+      {x:MAZE_W-2, y:MAZE_H-2},
+    ];
+
+    function nearestPassable(seed){
+      // 在 seed 附近螺旋找可走格
+      for (let r=0;r<Math.max(MAZE_W, MAZE_H);r++){
+        for (let dy=-r; dy<=r; dy++){
+          for (let dx=-r; dx<=r; dx++){
+            const x = Math.max(1, Math.min(MAZE_W-2, seed.x+dx));
+            const y = Math.max(1, Math.min(MAZE_H-2, seed.y+dy));
+            if (passableCell(x,y)) return {x,y};
+          }
+        }
+      }
+      return randomPassableCellFarFromStart(6);
+    }
+
+    const picks = [];
+    function farEnough(c){
+      // 与起点保持距离、且与其他幽灵保持分散
+      const dStart = Math.abs(c.x-0)+Math.abs(c.y-1);
+      if (dStart < 8) return false;
+      for (const p of picks){
+        const d = Math.abs(c.x-p.x)+Math.abs(c.y-p.y);
+        if (d < 10) return false;
+      }
+      return true;
+    }
+
+    for (let i=0;i<ghosts.length;i++){
+      let chosen = null;
+
+      // 先尝试四角附近
+      for (let tries=0; tries<120 && !chosen; tries++){
+        const base = desired[i] || desired[(Math.random()*desired.length)|0];
+        const seed = {
+          x: base.x + (((Math.random()*9)|0)-4),
+          y: base.y + (((Math.random()*9)|0)-4),
+        };
+        const c = nearestPassable(seed);
+        if (farEnough(c)) chosen = c;
+      }
+
+      // 再随机兜底
+      if (!chosen){
+        for (let tries=0; tries<600 && !chosen; tries++){
+          const c = randomPassableCellFarFromStart(8);
+          if (farEnough(c)) chosen = c;
+        }
+      }
+      if (!chosen) chosen = randomPassableCellFarFromStart(8);
+
+      picks.push(chosen);
+
+      const g = ghosts[i];
+      g.pos.set(mazeOffsetX + chosen.x*CELL, 0.8, mazeOffsetZ + chosen.y*CELL);
+      g.group.position.copy(g.pos);
+      g.active = true;
+
+      // AI 状态
+      g.lastPlanAt = 0;
+      g.nextDecisionAt = 0;
+      g.state = "scatter"; // scatter / chase / roam
+      g.scatter = nearestPassable(desired[i] || {x:MAZE_W-2,y:MAZE_H-2});
+      g.targetCell = g.scatter;
+
+      // 速度轻微错开，避免“同步抱团”
+      g.baseSpeed = 3.0 + Math.random()*0.9;
+      g.speed = g.baseSpeed;
+      g.dir.set(1,0,0);
+    }
+
+    setGhostsVisible(true);
+  }
+
+  function neighborsPassable(x,y){
+    const out=[];
+    if (passableCell(x+1,y)) out.push({x:x+1,y});
+    if (passableCell(x-1,y)) out.push({x:x-1,y});
+    if (passableCell(x,y+1)) out.push({x,y:y+1});
+    if (passableCell(x,y-1)) out.push({x,y:y-1});
+    return out;
+  }
+
+  function updateGhosts(dt, now){
+    if (gameMode!=="pacman" || finished) return;
+
+    const pc = worldToCell(player.pos.x, player.pos.z);
+
+    // 幽灵群体分离（防止过于集中）：基于距离的排斥向量
+    function separationVec(me){
+      const v = new THREE.Vector3(0,0,0);
+      for (const other of ghosts){
+        if (other===me || !other.active) continue;
+        const dx = me.pos.x - other.pos.x;
+        const dz = me.pos.z - other.pos.z;
+        const d2 = dx*dx + dz*dz;
+        if (d2 < 0.0001) continue;
+        if (d2 < 3.2*3.2){ // 近距离才排斥
+          const inv = 1.0 / d2;
+          v.x += dx * inv;
+          v.z += dz * inv;
+        }
+      }
+      v.y = 0;
+      return v;
+    }
+
+    for (let i=0;i<ghosts.length;i++){
+      const g = ghosts[i];
+      if (!g.active) continue;
+
+      const gc = worldToCell(g.pos.x, g.pos.z);
+      const manDist = Math.abs(gc.x - pc.x) + Math.abs(gc.y - pc.y);
+
+      // 决策间隔：0.35~0.75s，且“靠近玩家”更频繁
+      const baseInterval = (manDist < 10) ? 380 : 650;
+      const interval = baseInterval + ((Math.random()*260)|0);
+
+      if (now >= (g.nextDecisionAt||0)){
+        g.nextDecisionAt = now + interval;
+
+        // 状态切换：近则追、远则游走/散开
+        if (manDist <= 9){
+          g.state = (Math.random() < 0.82) ? "chase" : "roam";
+        } else if (manDist >= 14){
+          g.state = (Math.random() < 0.70) ? "scatter" : "roam";
+        } else {
+          g.state = (Math.random() < 0.55) ? "roam" : "scatter";
+        }
+
+        // 选择目标格
+        let target = null;
+
+        if (g.state === "chase"){
+          // 追逐：用 BFS 走向玩家
+          const step = bfsNextStep(gc, pc);
+          if (step) target = step;
+        }
+
+        if (!target && g.state === "scatter"){
+          // 散开：朝各自的散开目标走；如果已接近就换一个偏远点
+          const dScatter = Math.abs(gc.x-g.scatter.x) + Math.abs(gc.y-g.scatter.y);
+          if (dScatter <= 3){
+            g.scatter = randomPassableCellFarFromStart(10);
+          }
+          const step = bfsNextStep(gc, g.scatter);
+          if (step) target = step;
+        }
+
+        if (!target){
+          // 游走：随机走，但更偏向“远离其他幽灵”以及“远离起点”
+          const near = neighborsPassable(gc.x, gc.y);
+          if (near.length){
+            // 评分：离其他幽灵越远越好；离起点越远越好；略偏向离玩家近一些（制造压力）
+            let best = near[0], bestScore = -1e9;
+            for (const c of near){
+              let score = 0;
+              const ds = Math.abs(c.x-0)+Math.abs(c.y-1);
+              score += ds * 0.08;
+              const dp = Math.abs(c.x-pc.x)+Math.abs(c.y-pc.y);
+              score += (20 - dp) * 0.06;
+
+              for (const o of ghosts){
+                if (o===g || !o.active) continue;
+                const oc = worldToCell(o.pos.x, o.pos.z);
+                const d = Math.abs(c.x-oc.x)+Math.abs(c.y-oc.y);
+                score += d * 0.10;
+              }
+              // 随机扰动，避免模式化
+              score += (Math.random()-0.5)*0.35;
+
+              if (score > bestScore){ bestScore = score; best = c; }
+            }
+            target = best;
+          }
+        }
+
+        if (target){
+          g.targetCell = target;
+          const targetW = new THREE.Vector3(mazeOffsetX + target.x*CELL, 0.8, mazeOffsetZ + target.y*CELL);
+          const dir = targetW.sub(g.pos).setY(0);
+          if (dir.lengthSq() > 1e-6) g.dir.copy(dir.normalize());
+        }
+
+        // 速度：追逐时略快
+        const speedBoost = (g.state === "chase") ? 1.18 : 1.0;
+        g.speed = (g.baseSpeed || g.speed) * speedBoost;
+      }
+
+      // 分离力叠加（防集中）
+      const sep = separationVec(g);
+      if (sep.lengthSq() > 1e-6){
+        sep.normalize().multiplyScalar(0.55);
+        g.dir.add(sep).normalize();
+      }
+
+      // 按方向移动
+      g.pos.addScaledVector(g.dir, g.speed*dt);
+      g.group.position.copy(g.pos);
+
+      // 碰撞玩家：扣命回起点
+      const dx = player.pos.x - g.pos.x;
+      const dz = player.pos.z - g.pos.z;
+      if (dx*dx + dz*dz < 1.05*1.05){
+        pacLives--;
+        lifeNowEl.textContent = String(pacLives);
+        if (pacLives <= 0){
+          onGameFail("幽灵把你耗尽了！👻", "吃豆人模式失败：生命归零。");
+        } else {
+          player.pos.copy(playerStart);
+          player.yaw = Math.PI/2; player.pitch = 0;
+          showMsg("受伤！", `你撞到幽灵，剩余生命：<strong>${pacLives}</strong>。<br/>已将你送回起点。`);
+        }
+      }
+    }
+  }
+
+  function clearBeans(){
+    if (beanMesh) { scene.remove(beanMesh); beanMesh.geometry.dispose(); beanMesh.material.dispose(); }
+    beanMesh = null;
+    beanCells = [];
+    beanAlive = null;
+    beansLeft = 0;
+  }
+
+  function placeBeans(){
+    clearBeans();
+    // 收集所有通路（排除起点）
+    for (let y=0;y<MAZE_H;y++){
+      for (let x=0;x<MAZE_W;x++){
+        if (!mazeGrid || mazeGrid[y][x]!==0) continue;
+        if (x===0 && y===1) continue;
+        beanCells.push({x,y});
+      }
+    }
+    beansLeft = beanCells.length;
+    beanAlive = new Uint8Array(beansLeft);
+    beanAlive.fill(1);
+
+    beanMesh = new THREE.InstancedMesh(beanGeo, beanMat, beansLeft);
+    const m = new THREE.Matrix4();
+    for (let i=0;i<beansLeft;i++){
+      const c = beanCells[i];
+      const wx = mazeOffsetX + c.x*CELL;
+      const wz = mazeOffsetZ + c.y*CELL;
+      m.makeTranslation(wx, 0.35, wz);
+      beanMesh.setMatrixAt(i, m);
+    }
+    beanMesh.instanceMatrix.needsUpdate = true;
+    scene.add(beanMesh);
+
+    collectAllEl.textContent = String(beansLeft);
+    collectNowEl.textContent = "0";
+  }
+
+  function tryEatBean(){
+    if (gameMode!=="pacman" || !beanAlive) return;
+    const pc = worldToCell(player.pos.x, player.pos.z);
+    // 线性找会慢；用“近似”：只检查当前 cell 是否有豆
+    // 建一个 Map：cellKey -> index
+  }
+
+  // =========================================================
+  // 迷宫构建
+  // =========================================================
+  function clearMaze(){
+    wallBoxes = [];
+    scene.remove(mazeGroup);
+    mazeGroup.traverse(obj => {
+      if (obj.isMesh) {
+        obj.geometry.dispose();
+        if (Array.isArray(obj.material)) obj.material.forEach(m => m.dispose());
+        else obj.material.dispose();
+      }
+    });
+    mazeGroup = new THREE.Group();
+    scene.add(mazeGroup);
+  }
+
+  // 豆子：cell -> index 映射
+  let beanIndexByCell = null; // Map<string, number>
+
+  function buildNewMaze(showStartMsg){
+    closeAllModals();
+
+    clearMaze();
+    clearTreasures();
+    clearBeans();
+
+    // 怪物/幽灵复位
+    if (monster.mesh) monster.mesh.visible = false;
+    monster.active = false; monster.triggered=false; monster.path=[];
+    for (const g of ghosts){ g.active=false; g.group.visible=false; }
+
+    // 计时/状态
+    resetTimerUI();
+    finished = false;
+
+    // 生成迷宫
+    mazeGrid = generateMaze(MAZE_W, MAZE_H, { braid:0.50, punch:0.09 });
+    visited = new Uint8Array(MAZE_W * MAZE_H);
+
+    mazeOffsetX = -(MAZE_W * CELL) / 2 + CELL/2;
+    mazeOffsetZ = -(MAZE_H * CELL) / 2 + CELL/2;
+
+    // 墙
+    for (let y=0;y<MAZE_H;y++){
+      for (let x=0;x<MAZE_W;x++){
+        if (mazeGrid[y][x]===1){
+          const wall = new THREE.Mesh(wallGeo, wallMat);
+          wall.position.set(mazeOffsetX + x*CELL, WALL_H/2, mazeOffsetZ + y*CELL);
+          mazeGroup.add(wall);
+          const box = new THREE.Box3().setFromObject(wall);
+          wallBoxes.push({mesh: wall, box});
+        }
+      }
+    }
+
+    // 起点/目标
+    player.pos.set(mazeOffsetX + 0*CELL, 1.6, mazeOffsetZ + 1*CELL);
+    playerStart.copy(player.pos);
+    player.yaw = Math.PI/2;
+    player.pitch = 0;
+
+    if (gameMode !== "pacman"){
+      goal.visible = true;
+      goal.position.set(mazeOffsetX + (MAZE_W-1)*CELL, 0.12, mazeOffsetZ + (MAZE_H-2)*CELL);
+      placeTreasures();
+      treasureCollected = 0;
+      currentScore = 0;
+      collectLabelEl.textContent = "宝物";
+      collectAllEl.textContent = String(treasureTotal);
+      collectNowEl.textContent = "0";
+    } else {
+      goal.visible = false;
+      // 豆子 + 幽灵 + 生命
+      pacLives = 3;
+      lifeRow.style.display = "block";
+      lifeNowEl.textContent = String(pacLives);
+
+      collectLabelEl.textContent = "豆子";
+      placeBeans();
+      // 建 cell->index map
+      beanIndexByCell = new Map();
+      for (let i=0;i<beanCells.length;i++){
+        const c = beanCells[i];
+        beanIndexByCell.set(`${c.x},${c.y}`, i);
+      }
+
+      spawnGhosts();
+      currentScore = 0;
+    }
+
+    if (gameMode !== "pacman") {
+      lifeRow.style.display = "none";
+    }
+
+    // 追逐：怪物在外面
+    if (gameMode==="chase"){
+      spawnMonsterAtEntrance();
+    }
+
+    // UI
+    modeNameEl.textContent = MODES[gameMode].name;
+    infoEl.textContent = `尺寸 ${MAZE_W}×${MAZE_H}`;
+    minimapWrap.querySelector("#minimapLabel").textContent = gameMode==="pacman" ? "豆子地图" : "迷宫地图";
+
+    // 同条件最佳
+    updateRecordLabels();
+
+    syncFullscreenBtn();
+    syncTimerVisibility();
+    syncMinimapVisibility();
+
+    // 起点探索
+    markVisitedByWorld(player.pos.x, player.pos.z);
+    renderMinimap();
+
+    // 主界面隐藏、HUD 显示
+    setGameState("game");
+
+    // 提示
+    if (showStartMsg){
+      if (gameMode==="normal") {
+        showMsg("开始！", "走到发光的<strong>蓝色圆点</strong>处即可通关。<br/>宝物：拾取可加分。");
+      } else if (gameMode==="chase") {
+        showMsg("开始！", "走到发光的<strong>蓝色圆点</strong>处即可通关。<br/>深入迷宫后，入口处的<strong>怪物</strong>会开始追你。");
+      } else {
+        showMsg("开始！", "吃完所有<strong>豆子</strong>即可成功。<br/>小心 4 个幽灵：碰到会扣命回起点（3 命）。");
+      }
+    }
+  }
+
+  restartBtn.onclick = () => buildNewMaze(true);
+
+  // =========================================================
+  // 主界面
+  // =========================================================
+  let gameState = "menu"; // menu | game
+
+  function setGameState(s){
+    gameState = s;
+    if (s === "menu") {
+      menuEl.style.display = "block";
+      document.getElementById("hud").style.display = "none";
+      minimapWrap.style.display = "none";
+      minimalExitBtn.style.display = "none";
+      minimalTimeEl.style.display = "none";
+      minimalInfoWrap.style.display = "none";
+      document.body.classList.remove("minimal");
+      settings.minimalMode = false;
+      setPaused(true);
+    } else {
+      menuEl.style.display = "none";
+      document.getElementById("hud").style.display = "flex";
+      setPaused(false);
+      syncMinimapVisibility();
+      syncTimerVisibility();
+      // 极简由用户手动开
+    }
+  }
+
+  function updateMenuRecords(){
+    // 用当前尺寸 + 当前关键开关，分别渲染三种模式的记录
+    const modes = ["normal","chase","pacman"];
+    for (const m of modes){
+      const savedMode = gameMode;
+      gameMode = m;
+      const rec = loadRecord();
+      const bestScore = rec.bestScore==null ? "--" : String(Math.floor(rec.bestScore));
+      const bestTime = rec.bestTime==null ? "--" : formatMs(rec.bestTime);
+      const el = document.getElementById(`rec_${m}`);
+      if (el) el.innerHTML = `最高分：<b>${bestScore}</b><br/>最短用时：<b>${bestTime}</b>`;
+      gameMode = savedMode;
+    }
+  }
+
+  function goMenu(){
+    closeAllModals();
+    setGameState("menu");
+    // 更新主界面记录显示
+    updateMenuRecords();
+    // 应用背景色
+    applyMenuBg(settings.menuBg.r, settings.menuBg.g, settings.menuBg.b);
+  }
+
+  menuBtn.onclick = () => goMenu();
+
+  // 点击开始
+  document.querySelectorAll(".playBtn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const m = btn.getAttribute("data-mode");
+      if (!MODES[m]) return;
+      gameMode = m;
+      persistCurrentPrefs();
+      setGameState("game");
+      buildNewMaze(true);
+    });
+  });
+
+  // =========================================================
+  // 输入：键盘/鼠标/触控
+  // =========================================================
+  const keys = { w:false,a:false,s:false,d:false };
+  addEventListener("keydown", (e) => {
+    if (e.code==="KeyW") keys.w=true;
+    if (e.code==="KeyA") keys.a=true;
+    if (e.code==="KeyS") keys.s=true;
+    if (e.code==="KeyD") keys.d=true;
+  });
+  addEventListener("keyup", (e) => {
+    if (e.code==="KeyW") keys.w=false;
+    if (e.code==="KeyA") keys.a=false;
+    if (e.code==="KeyS") keys.s=false;
+    if (e.code==="KeyD") keys.d=false;
+  });
+
+  let mouseDown=false;
+  let lastMX=0,lastMY=0;
+  renderer.domElement.addEventListener("mousedown", (e) => {
+    if (activeModal || gameState!=="game") return;
+    mouseDown=true;
+    lastMX=e.clientX; lastMY=e.clientY;
+  });
+  addEventListener("mouseup", () => mouseDown=false);
+  addEventListener("mousemove", (e) => {
+    if (!mouseDown || activeModal || gameState!=="game") return;
+    const dx=e.clientX-lastMX, dy=e.clientY-lastMY;
+    lastMX=e.clientX; lastMY=e.clientY;
+    player.yaw -= dx*lookSensitivity;
+    player.pitch -= dy*lookSensitivity;
+    player.pitch = Math.max(-1.2, Math.min(1.2, player.pitch));
+  });
+
+  let lookTouchId=null, lookLastX=0, lookLastY=0;
+  const joyEl=document.getElementById("joystick");
+  const stickEl=document.getElementById("stick");
+  let joyTouchId=null;
+  let joyCenter={x:0,y:0};
+  let joyVec={x:0,y:0};
+
+  function setStick(px,py){ stickEl.style.transform = `translate(${px}px, ${py}px)`; }
+  function resetStick(){ setStick(0,0); joyVec.x=0; joyVec.y=0; }
+  function inJoystickArea(x,y){
+    const r=joyEl.getBoundingClientRect();
+    return x>=r.left && x<=r.right && y>=r.top && y<=r.bottom;
+  }
+
+  addEventListener("touchstart", (e) => {
+    if (activeModal || gameState!=="game") return;
+    for (const t of e.changedTouches){
+      const x=t.clientX, y=t.clientY;
+      if (joyTouchId===null && inJoystickArea(x,y)){
+        joyTouchId=t.identifier;
+        const r=joyEl.getBoundingClientRect();
+        joyCenter={x:(r.left+r.right)/2, y:(r.top+r.bottom)/2};
+      } else if (lookTouchId===null){
+        lookTouchId=t.identifier;
+        lookLastX=x; lookLastY=y;
+      }
+    }
+  }, {passive:false});
+
+  addEventListener("touchmove", (e) => {
+    if (activeModal || gameState!=="game") return;
+    for (const t of e.changedTouches){
+      const x=t.clientX, y=t.clientY;
+      if (t.identifier===joyTouchId){
+        const dx=x-joyCenter.x, dy=y-joyCenter.y;
+        const len=Math.hypot(dx,dy);
+        const clamped=Math.min(len, JOY_RADIUS);
+        const nx=(len>0)?(dx/len):0;
+        const ny=(len>0)?(dy/len):0;
+        const px=nx*clamped, py=ny*clamped;
+        setStick(px,py);
+        joyVec.x=px/JOY_RADIUS;
+        joyVec.y=py/JOY_RADIUS;
+      }
+      if (t.identifier===lookTouchId){
+        const dx=x-lookLastX, dy=y-lookLastY;
+        lookLastX=x; lookLastY=y;
+        player.yaw -= dx*lookSensitivity*1.2;
+        player.pitch -= dy*lookSensitivity*1.2;
+        player.pitch = Math.max(-1.2, Math.min(1.2, player.pitch));
+      }
+    }
+    e.preventDefault();
+  }, {passive:false});
+
+  addEventListener("touchend", (e) => {
+    for (const t of e.changedTouches){
+      if (t.identifier===joyTouchId){ joyTouchId=null; resetStick(); }
+      if (t.identifier===lookTouchId){ lookTouchId=null; }
+    }
+  });
+  addEventListener("touchcancel", () => { joyTouchId=null; lookTouchId=null; resetStick(); });
+
+  // =========================================================
+  // 设置面板：应用
+  // =========================================================
+  settingsEl.querySelectorAll(".presetBtn").forEach(btn => {
+    btn.addEventListener("click", () => { setW.value=btn.dataset.w; setH.value=btn.dataset.h; });
+  });
+
+  settingsApply.onclick = () => {
+    let w = parseInt(setW.value,10); let h = parseInt(setH.value,10);
+    w = Number.isFinite(w)?w:MAZE_W; h=Number.isFinite(h)?h:MAZE_H;
+    w = clampNum(w,11,101); h=clampNum(h,11,101);
+    if (w%2===0) w+=1; if (h%2===0) h+=1;
+
+    const nextMinimapEnabled = !!setMinimapEnabled.checked;
+    const nextMinimapVisible = !!setMinimapVisible.checked;
+    const nextShowEntityOnMinimap = !!setShowEntityOnMinimap.checked;
+    const nextTimerEnabled = !!setTimerEnabled.checked;
+    const nextScoreEnabled = !!setScoreEnabled.checked;
+    const nextShowEntityModels = !!setShowEntityModels.checked;
+    const nextCameraShake = !!setCameraShake.checked;
+
+    const nextLook = clampNum(Number(setLookValue.value), 0.001, 0.01);
+
+    // colors
+    const skyPreset = setSkyPreset.value;
+    const skyR = clampNum(parseInt(setSkyR.value,10)||0,0,255);
+    const skyG = clampNum(parseInt(setSkyG.value,10)||0,0,255);
+    const skyB = clampNum(parseInt(setSkyB.value,10)||0,0,255);
+
+    const menuPreset = setMenuBgPreset.value;
+    const menuR = clampNum(parseInt(setMenuBgR.value,10)||0,0,255);
+    const menuG = clampNum(parseInt(setMenuBgG.value,10)||0,0,255);
+    const menuB = clampNum(parseInt(setMenuBgB.value,10)||0,0,255);
+
+    const wallPreset = setWallPreset.value;
+    const wallR = clampNum(parseInt(setWallR.value,10)||0,0,255);
+    const wallG = clampNum(parseInt(setWallG.value,10)||0,0,255);
+    const wallB = clampNum(parseInt(setWallB.value,10)||0,0,255);
+
+    const floorPreset = setFloorPreset.value;
+    const floorR = clampNum(parseInt(setFloorR.value,10)||0,0,255);
+    const floorG = clampNum(parseInt(setFloorG.value,10)||0,0,255);
+    const floorB = clampNum(parseInt(setFloorB.value,10)||0,0,255);
+
+    // adv
+    const advFov = clampNum(Number(setFovValue.value), 50, 100);
+    const advContrast = clampNum(Number(setContrastValue.value), 0.6, 1.6);
+    const advBrightness = clampNum(Number(setBrightnessValue.value), 0.6, 1.6);
+    const advSharpness = clampNum(Number(setSharpnessValue.value), 0.7, 1.6);
+    const advMotionBlur = !!setMotionBlur.checked;
+
+    const needReset =
+      (w!==MAZE_W) || (h!==MAZE_H) || (nextMinimapEnabled !== settings.minimapEnabled);
+
+    // 应用无需重置的
+    settings.minimapVisible = nextMinimapVisible;
+    settings.showEntityOnMinimap = nextShowEntityOnMinimap;
+    settings.timerEnabled = nextTimerEnabled;
+    settings.scoreEnabled = nextScoreEnabled;
+    settings.showEntityModels = nextShowEntityModels;
+    settings.cameraShake = nextCameraShake;
+    lookSensitivity = nextLook;
+
+    settings.sky = { preset: skyPreset, r: skyR, g: skyG, b: skyB };
+    settings.menuBg = { preset: menuPreset, r: menuR, g: menuG, b: menuB };
+    settings.wall = { preset: wallPreset, r: wallR, g: wallG, b: wallB };
+    settings.floor = { preset: floorPreset, r: floorR, g: floorG, b: floorB };
+
+    settings.adv = { fov: advFov, contrast: advContrast, brightness: advBrightness, sharpness: advSharpness, motionBlur: advMotionBlur };
+
+    // 立即应用画面
+    camera.fov = settings.adv.fov;
+    camera.updateProjectionMatrix();
+    renderer.toneMappingExposure = settings.adv.brightness;
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2) * settings.adv.sharpness);
+    applyCanvasFilters(0);
+
+    applySkyColor(skyR, skyG, skyB);
+    applyWallFloor(wallR, wallG, wallB, floorR, floorG, floorB);
+    applyMenuBg(menuR, menuG, menuB);
+
+    syncTimerVisibility();
+    syncMinimapVisibility();
+    updateTimerUI();
+    recomputeLiveScore();
+    updateScoreUI();
+
+    // 可见性：怪物/幽灵模型
+    setMonsterVisible(settings.showEntityModels);
+    setGhostsVisible(settings.showEntityModels);
+
+    // 持久化
+    persistCurrentPrefs();
+
+    hideSettings();
+
+    if (needReset){
+      MAZE_W=w; MAZE_H=h;
+      settings.minimapEnabled = nextMinimapEnabled;
+      persistCurrentPrefs();
+      if (gameState==="game") buildNewMaze(true);
+      else updateMenuRecords();
+    } else {
+      // 记录显示刷新（同条件可能变化）
+      if (gameState==="menu") updateMenuRecords();
+    }
+  };
+
+  // =========================================================
+  // 导出/导入（包含 v2 settings / records）
+  // =========================================================
+  const TRANSFER_MAGIC = "MAZE3D_V2_MODES";
+  const FIXED_SECRET = "maze3d_fixed_secret_v2_modes::not_strong_security";
+
+  function b64encode(bytes){ let s=""; for (let i=0;i<bytes.length;i++) s += String.fromCharCode(bytes[i]); return btoa(s); }
+  function b64decode(str){ const s=atob(str); const bytes=new Uint8Array(s.length); for (let i=0;i<s.length;i++) bytes[i]=s.charCodeAt(i); return bytes; }
+
+  async function deriveKey(){
+    const enc=new TextEncoder();
+    const material=await crypto.subtle.importKey("raw", enc.encode(FIXED_SECRET), {name:"PBKDF2"}, false, ["deriveKey"]);
+    return crypto.subtle.deriveKey(
+      { name:"PBKDF2", salt: enc.encode("maze3d_salt_v2_modes"), iterations: 2000, hash:"SHA-256" },
+      material,
+      { name:"AES-GCM", length:256 },
+      false,
+      ["encrypt","decrypt"]
+    );
+  }
+  async function encryptString(plain){
+    const key=await deriveKey();
+    const iv=crypto.getRandomValues(new Uint8Array(12));
+    const enc=new TextEncoder();
+    const cipher=await crypto.subtle.encrypt({name:"AES-GCM", iv}, key, enc.encode(plain));
+    const cbytes=new Uint8Array(cipher);
+    const out=new Uint8Array(iv.length + cbytes.length);
+    out.set(iv,0); out.set(cbytes, iv.length);
+    return b64encode(out);
+  }
+  async function decryptString(b64){
+    const bytes=b64decode(b64.trim());
+    if (bytes.length<13) throw new Error("too short");
+    const iv=bytes.slice(0,12);
+    const data=bytes.slice(12);
+    const key=await deriveKey();
+    const plainBuf=await crypto.subtle.decrypt({name:"AES-GCM", iv}, key, data);
+    return new TextDecoder().decode(plainBuf);
+  }
+  function collectStorageByPrefix(prefix){
+    const out={};
+    for (let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i);
+      if (k && k.startsWith(prefix)) out[k]=localStorage.getItem(k);
+    }
+    return out;
+  }
+
+  btnExport.onclick = async () => {
+    try{
+      const payload = {
+        magic: TRANSFER_MAGIC,
+        version: 2,
+        savedAt: Date.now(),
+        prefs: { MAZE_W, MAZE_H, lookSensitivity, gameMode, settings },
+        records: collectStorageByPrefix("maze3d_record_"),
+      };
+      transferText.value = await encryptString(JSON.stringify(payload));
+      transferText.focus(); transferText.select();
+    } catch(e){
+      showMsg("导出失败", "浏览器不支持 WebCrypto 或发生错误。");
+    }
+  };
+  btnImport.onclick = async () => {
+    const s = transferText.value.trim();
+    if (!s) { showMsg("导入提示", "请先粘贴加密字符串。"); return; }
+    try{
+      const json = await decryptString(s);
+      const payload = safeParseJSON(json);
+      if (!payload || payload.magic !== TRANSFER_MAGIC) throw new Error("bad magic");
+
+      if (payload.records) for (const k in payload.records) localStorage.setItem(k, payload.records[k]);
+
+      if (payload.prefs){
+        const p = payload.prefs;
+        if (typeof p.MAZE_W === "number") MAZE_W = p.MAZE_W;
+        if (typeof p.MAZE_H === "number") MAZE_H = p.MAZE_H;
+        if (typeof p.lookSensitivity === "number") lookSensitivity = clampNum(p.lookSensitivity, 0.001, 0.01);
+        if (typeof p.gameMode === "string" && MODES[p.gameMode]) gameMode = p.gameMode;
+        if (p.settings) Object.assign(settings, p.settings);
+      }
+      // 重新应用
+      applySkyColor(settings.sky.r, settings.sky.g, settings.sky.b);
+      applyWallFloor(settings.wall.r, settings.wall.g, settings.wall.b, settings.floor.r, settings.floor.g, settings.floor.b);
+      applyMenuBg(settings.menuBg.r, settings.menuBg.g, settings.menuBg.b);
+
+      camera.fov = settings.adv.fov;
+      camera.updateProjectionMatrix();
+      renderer.toneMappingExposure = settings.adv.brightness;
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2) * settings.adv.sharpness);
+      applyCanvasFilters(0);
+
+      persistCurrentPrefs();
+
+      if (gameState==="game") buildNewMaze(true);
+      else updateMenuRecords();
+
+      showMsg("导入成功", "已导入数据并应用设置。");
+    } catch(e){
+      showMsg("导入失败", "字符串无效或解密失败。请确认复制完整。");
+    }
+  };
+
+  // =========================================================
+  // 失败/成功统一处理
+  // =========================================================
+  function onGameFail(title, detail){
+    if (finished) return;
+    finished = true;
+    stopTimerIfRunning();
+    finalizeScoreOnFail();
+    updateScoreUI();
+    showMsg(title, `${detail}<br/><br/>本次分数：<strong>${Math.floor(currentScore)}</strong><br/>你可以“重开”或返回“主界面”。`);
+  }
+
+  function onGameSuccess(){
+    const timeRec = finalizeTimer();
+    const scoreRec = finalizeScore();
+    updateScoreUI();
+
+    const timeInfo = settings.timerEnabled
+      ? `<br/>本次用时：<strong>${formatMs(timeRec.elapsed ?? 0)}</strong><br/>同条件最短：<strong>${timeRec.best==null?'--':formatMs(timeRec.best)}</strong>` +
+        (timeRec.isPB ? `<br/><span style="color:rgba(110,231,255,0.95);font-weight:950">新纪录！</span>` : "")
+      : "";
+
+    const scoreInfo = settings.scoreEnabled
+      ? `<br/><br/>本次分数：<strong>${Math.floor(scoreRec.score)}</strong><br/>同条件最高分：<strong>${Math.floor(scoreRec.best ?? scoreRec.score)}</strong>` +
+        (scoreRec.isPB ? `<br/><span style="color:rgba(255,209,102,0.95);font-weight:950">新最高分！</span>` : "")
+      : "";
+
+    showMsg("成功！🎉", `挑战完成。${timeInfo}${scoreInfo}<br/><br/>点击“重开”继续，或回“主界面”。`);
+  }
+
+  // =========================================================
+  // 主循环
+  // =========================================================
+  let lastT = performance.now();
+  let shakeT = 0;
+  let moveBlur = 0;
+
+  function updateMinimalInfo(){
+    if (!settings.minimalMode || gameState!=="game") return;
+    const lines = [];
+    lines.push(`模式：${MODES[gameMode].name}`);
+    lines.push(`分数：${Math.floor(currentScore)}`);
+    if (gameMode==="pacman") {
+      lines.push(`豆子：${beanAlive ? (beanCells.length - beansLeft) : 0}/${beanCells.length || 0}`);
+      lines.push(`生命：${pacLives}`);
+    } else {
+      lines.push(`宝物：${treasureCollected}/${treasureTotal}`);
+      if (gameMode==="chase") lines.push(`怪物：${monster.triggered ? "追逐中" : "潜伏"}`);
+    }
+    minimalInfoEl.textContent = lines.join("\n");
+  }
+
+  function animate(now){
+    requestAnimationFrame(animate);
+    const dt = Math.min(0.033, (now-lastT)/1000);
+    lastT = now;
+
+    // menu 状态仍渲染（保持背景/响应）
+    const paused = gamePaused || gameState!=="game";
+
+    const forward = new THREE.Vector3(Math.sin(player.yaw), 0, Math.cos(player.yaw));
+    const right = new THREE.Vector3(forward.z, 0, -forward.x);
+
+    let mx=0,mz=0;
+    if (!paused){
+      if (keys.w) mz += 1;
+      if (keys.s) mz -= 1;
+      if (keys.d) mx += 1;
+      if (keys.a) mx -= 1;
+      mx -= joyVec.x;
+      mz -= joyVec.y;
+    }
+
+    const mag = Math.hypot(mx,mz);
+    if (mag > 1e-6) { mx/=Math.max(1,mag); mz/=Math.max(1,mag); }
+
+    const moving = (!paused && (Math.abs(mx)+Math.abs(mz))>0.02);
+
+    if (moving) startTimerIfNeeded();
+
+    const v = new THREE.Vector3();
+    v.addScaledVector(right, mx*SPEED);
+    v.addScaledVector(forward, mz*SPEED);
+
+    if (!paused && !finished){
+      const next = player.pos.clone().addScaledVector(v, dt);
+      player.pos.copy(resolveCollisions(next));
+      markVisitedByWorld(player.pos.x, player.pos.z);
+
+      // 宝物旋转/拾取（普通/追逐）
+      if (gameMode!=="pacman"){
+        for (const t of treasures){
+          if (t.collected) continue;
+          t.mesh.rotation.x += dt*1.4;
+          t.mesh.rotation.y += dt*1.8;
+          const dx = player.pos.x - t.mesh.position.x;
+          const dz = player.pos.z - t.mesh.position.z;
+          if (dx*dx + dz*dz < 1.1*1.1){
+            t.collected=true;
+            treasureGroup.remove(t.mesh);
+            treasureCollected++;
+            collectNowEl.textContent = String(treasureCollected);
+          }
+        }
+      } else {
+        // 豆子：吃当前 cell
+        if (beanIndexByCell && beanMesh && beanAlive){
+          const pc = worldToCell(player.pos.x, player.pos.z);
+          const k = `${pc.x},${pc.y}`;
+          const idx = beanIndexByCell.get(k);
+          if (idx != null && beanAlive[idx]===1){
+            beanAlive[idx]=0;
+            beansLeft--;
+            const m = new THREE.Matrix4();
+            // 移走实例（隐藏）
+            m.makeTranslation(9999,9999,9999);
+            beanMesh.setMatrixAt(idx, m);
+            beanMesh.instanceMatrix.needsUpdate = true;
+            collectNowEl.textContent = String(beanCells.length - beansLeft);
+          }
+        }
+      }
+
+      // 追逐模式：触发怪物
+      triggerMonsterIfNeeded();
+      updateMonster(dt, now);
+
+      // 吃豆人：更新幽灵
+      updateGhosts(dt, now);
+
+      // 分数
+      recomputeLiveScore();
+      updateScoreUI();
+    }
+
+    // 画面模糊（移动时轻微 blur）
+    if (settings.adv.motionBlur){
+      moveBlur = moving ? Math.min(2.5, moveBlur + dt*6) : Math.max(0, moveBlur - dt*8);
+      applyCanvasFilters(moveBlur);
+    } else {
+      if (moveBlur !== 0){ moveBlur = 0; applyCanvasFilters(0); }
+    }
+
+    // 摄像机 + 视角晃动
+    camera.position.set(player.pos.x, 1.6, player.pos.z);
+
+    let shakeYaw = 0, shakePitch = 0;
+    if (settings.cameraShake && moving && !paused && !finished){
+      shakeT += dt * 10.0;
+      const amp = 0.012;
+      shakeYaw = Math.sin(shakeT*1.7) * amp;
+      shakePitch = Math.sin(shakeT*2.3 + 1.1) * amp * 0.7;
+    }
+
+    const lookDir = new THREE.Vector3(
+      Math.sin(player.yaw + shakeYaw) * Math.cos(player.pitch + shakePitch),
+      Math.sin(player.pitch + shakePitch),
+      Math.cos(player.yaw + shakeYaw) * Math.cos(player.pitch + shakePitch)
+    );
+    camera.lookAt(camera.position.clone().add(lookDir));
+
+    updateTimerUI();
+    if (!paused && !finished) renderMinimap();
+    updateMinimalInfo();
+
+    // 成功判定
+    if (!paused && !finished){
+      if (gameMode !== "pacman"){
+        const dx = player.pos.x - goal.position.x;
+        const dz = player.pos.z - goal.position.z;
+        if (dx*dx + dz*dz < 1.2*1.2) onGameSuccess();
+      } else {
+        if (beansLeft <= 0) onGameSuccess();
+      }
+    }
+
+    renderer.render(scene, camera);
+  }
+
+  // =========================================================
+  // 自适应
+  // =========================================================
+  addEventListener("resize", () => {
+    camera.aspect = innerWidth/innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+
+  // =========================================================
+  // 初始化：应用颜色/背景 + 进入主界面
+  // =========================================================
+  applySkyColor(settings.sky.r, settings.sky.g, settings.sky.b);
+  applyMenuBg(settings.menuBg.r, settings.menuBg.g, settings.menuBg.b);
+  applyWallFloor(settings.wall.r, settings.wall.g, settings.wall.b, settings.floor.r, settings.floor.g, settings.floor.b);
+  syncFullscreenBtn();
+
+  // menu 默认展示
+  updateMenuRecords();
+  setGameState("menu");
+  goMenu();
+
+  // 启动渲染循环
+  requestAnimationFrame(animate);
+
+})();
+</script>
+</body>
+</html>
